@@ -1,0 +1,15 @@
+{
+  "name": "chat-nave",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chat privata per i partecipanti di un evento in nave",
+  "main": "src/server.js",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "dev": "SECURE_COOKIE=0 node --disable-warning=ExperimentalWarning src/server.js",
+    "import": "node --disable-warning=ExperimentalWarning scripts/import.js",
+    "admin": "node --disable-warning=ExperimentalWarning scripts/admin.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  }
+}

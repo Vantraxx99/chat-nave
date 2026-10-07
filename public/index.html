@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#0b6e6e">
+  <title>Chat di bordo</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Accesso -->
+  <section id="login" class="screen hidden">
+    <div class="login-card">
+      <div class="logo">⚓</div>
+      <h1>Chat di bordo</h1>
+      <p class="muted">La chat privata dei partecipanti all'evento.</p>
+
+      <form id="login-form" autocomplete="off">
+        <label for="code">Il tuo codice personale</label>
+        <input id="code" name="code" inputmode="text" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="ES. K7PQ2M" required>
+        <button type="submit">Entra</button>
+      </form>
+
+      <div id="join-box" class="hidden">
+        <p class="divider"><span>oppure, prima volta?</span></p>
+        <form id="join-form" autocomplete="off">
+          <label for="join-name">Nome e cognome</label>
+          <input id="join-name" maxlength="60" required>
+          <label for="join-code">Codice evento</label>
+          <input id="join-code" autocapitalize="characters" spellcheck="false" maxlength="20" required>
+          <button type="submit" class="secondary">Registrati</button>
+        </form>
+      </div>
+      <p id="login-error" class="error" role="alert"></p>
+    </div>
+  </section>
+
+  <!-- Codice appena creato -->
+  <section id="welcome" class="screen hidden">
+    <div class="login-card">
+      <div class="logo">🎉</div>
+      <h1>Benvenuto a bordo!</h1>
+      <p>Questo è il tuo codice personale. <strong>Salvalo</strong> (fai uno screenshot): ti servirà per rientrare da un altro dispositivo.</p>
+      <p id="welcome-code" class="big-code"></p>
+      <button id="welcome-continue">Ho salvato il codice, continua</button>
+    </div>
+  </section>
+
+  <!-- App -->
+  <section id="app" class="screen hidden">
+    <aside id="sidebar">
+      <header class="bar">
+        <div class="me">
+          <span id="me-avatar" class="avatar"></span>
+          <span id="me-name"></span>
+        </div>
+        <div class="bar-actions">
+          <button id="btn-new" class="icon" title="Nuova chat" aria-label="Nuova chat">✎</button>
+          <button id="btn-menu" class="icon" title="Menu" aria-label="Menu">⋮</button>
+        </div>
+      </header>
+      <div id="offline" class="offline hidden">Connessione assente, riprovo…</div>
+      <div class="search"><input id="conv-filter" type="search" placeholder="Cerca chat"></div>
+      <ul id="conv-list" class="list"></ul>
+    </aside>
+
+    <main id="chat">
+      <div id="chat-empty" class="chat-empty">
+        <div class="logo">🚢</div>
+        <p>Scegli una chat o iniziane una nuova con ✎</p>
+      </div>
+      <div id="chat-view" class="hidden">
+        <header class="bar">
+          <button id="btn-back" class="icon back" aria-label="Indietro">←</button>
+          <button id="chat-title-btn" class="chat-title">
+            <span id="chat-avatar" class="avatar"></span>
+            <span>
+              <span id="chat-title"></span>
+              <small id="chat-subtitle" class="muted"></small>
+            </span>
+          </button>
+        </header>
+        <div id="messages" class="messages"></div>
+        <form id="composer" class="composer">
+          <textarea id="msg-input" rows="1" maxlength="1000" placeholder="Scrivi un messaggio"></textarea>
+          <button id="send-btn" type="submit" aria-label="Invia">➤</button>
+        </form>
+        <div id="readonly-note" class="readonly hidden">Solo gli organizzatori possono scrivere in questo canale</div>
+      </div>
+    </main>
+  </section>
+
+  <!-- Finestra modale generica -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <header class="modal-head">
+        <h2 id="modal-title"></h2>
+        <button id="modal-close" class="icon" aria-label="Chiudi">✕</button>
+      </header>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "Chat di bordo",
+  "short_name": "Chat bordo",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b6e6e",
+  "theme_color": "#0b6e6e",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
