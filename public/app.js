@@ -20,8 +20,8 @@
   };
 
   // ------------------------------------------------------------------ API
-  // Animazione di apertura: dura 2 secondi, poi si toglie. Saltata dopo un
-  // aggiornamento automatico (la pagina si ricarica da sola, niente sipario).
+  // Animazione di apertura: dura circa 4,5 secondi (un tocco la chiude subito), poi si
+  // toglie. Saltata dopo un aggiornamento automatico (la pagina si ricarica da sola).
   (() => {
     const splash = document.getElementById('splash');
     if (!splash) return;
@@ -29,7 +29,12 @@
     try { skip = sessionStorage.getItem('gr-skip-splash') === '1'; sessionStorage.removeItem('gr-skip-splash'); } catch {}
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (skip) { splash.remove(); return; }
-    setTimeout(() => splash.remove(), reduce ? 1000 : 2050);
+    const timer = setTimeout(() => splash.remove(), reduce ? 1250 : 4550);
+    splash.addEventListener('click', () => {
+      clearTimeout(timer);
+      splash.classList.add('out');
+      setTimeout(() => splash.remove(), 380);
+    }, { once: true });
   })();
 
   // Niente zoom, come in un'app: iOS ignora user-scalable=no per il pizzico, quindi

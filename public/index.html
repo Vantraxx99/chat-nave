@@ -18,18 +18,29 @@
   <link rel="stylesheet" href="/style.css?v=__APP_VERSION__">
 </head>
 <body>
-  <!-- Animazione di apertura (2 secondi) -->
+  <!-- Animazione di apertura (~4,5 secondi, tocca per saltarla) -->
   <div id="splash" aria-hidden="true">
-    <div class="splash-glow"></div>
+    <div class="splash-night"></div>
+    <div class="splash-stars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="splash-sun"></div>
+    <div class="splash-gulls"><span class="g1"><svg viewBox="0 0 24 10"><path d="M1 8Q6 1 12 7Q18 1 23 8"/></svg></span><span class="g2"><svg viewBox="0 0 24 10"><path d="M1 8Q6 1 12 7Q18 1 23 8"/></svg></span><span class="g3"><svg viewBox="0 0 24 10"><path d="M1 8Q6 1 12 7Q18 1 23 8"/></svg></span></div>
     <div class="splash-center">
-      <img class="splash-logo" src="/wordmark-t.png" alt="" width="582" height="180">
-      <p class="splash-tag">Setting sail…</p>
+      <div class="splash-logo-wrap">
+        <img class="splash-logo" src="/wordmark-t.png" alt="" width="582" height="180">
+        <div class="splash-burst"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="splash-tags">
+        <p class="splash-tag t1">Setting sail…</p>
+        <p class="splash-tag t2">Welcome aboard!</p>
+      </div>
     </div>
-    <div class="splash-bubbles"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="splash-bubbles"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <div class="splash-sea">
-      <span class="splash-ship">🚢</span>
+      <div class="splash-wave back"></div>
+      <span class="splash-ship"><span>🚢</span></span>
       <div class="splash-wave front"></div>
     </div>
+    <p class="splash-skip">Tap to skip</p>
   </div>
 
   <!-- Accesso / registrazione -->
