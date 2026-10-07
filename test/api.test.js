@@ -7,6 +7,7 @@ const path = require('node:path');
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-nave-'));
 process.env.SECURE_COOKIE = '0';
+process.env.PARTICIPANTS_FILE = path.join(process.env.DATA_DIR, 'nessun-elenco'); // registrazione aperta
 process.env.ADMIN_EMAILS = 'Carla@WeRoad.test';
 
 const { db } = require('../src/db');

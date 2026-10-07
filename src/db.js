@@ -59,6 +59,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS messages_conv ON messages(conversation_id, id);
   CREATE INDEX IF NOT EXISTS messages_seq ON messages(seq);
 
+  -- Email abilitate a mano dagli organizzatori (oltre all'elenco partecipanti).
+  CREATE TABLE IF NOT EXISTS allowed_emails (
+    email      TEXT PRIMARY KEY,
+    added_by   INTEGER REFERENCES users(id),
+    created_at INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS reads (
     user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,

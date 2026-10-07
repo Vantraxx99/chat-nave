@@ -6,13 +6,17 @@ const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { db } = require('./db');
 const { normalizeEmail, isValidEmail, cleanName, surnameMatches } = require('./identity');
+const { hashEmail, loadHashes } = require('./allowlist');
 
 const PORT = Number(process.env.PORT) || 3000;
 const normalizeCode = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 // Codice evento facoltativo, richiesto solo a chi si registra per la prima volta.
 const JOIN_CODE = process.env.JOIN_CODE ? normalizeCode(process.env.JOIN_CODE) : null;
-// Con SOLO_ISCRITTI=1 possono entrare solo le email importate dalla lista partecipanti.
-const LIST_ONLY = process.env.SOLO_ISCRITTI === '1';
+// Chi può registrarsi: se esiste l'elenco partecipanti (partecipanti.sha256) o
+// SOLO_ISCRITTI=1, solo le email in elenco, quelle importate, quelle abilitate dagli
+// organizzatori e gli organizzatori stessi. SOLO_ISCRITTI=0 apre a tutti.
+const PARTICIPANT_HASHES = loadHashes();
+const LIST_ONLY = process.env.SOLO_ISCRITTI === '1' || (process.env.SOLO_ISCRITTI !== '0' && PARTICIPANT_HASHES.size > 0);
 // Email degli organizzatori: diventano admin quando entrano.
 // Arrivano dal file organizzatori.txt (una per riga) e dalla variabile ADMIN_EMAILS (separate da virgola).
 function loadAdminEmails() {
@@ -45,6 +49,8 @@ const q = {
   deleteUserSessions: db.prepare(`DELETE FROM sessions WHERE user_id = ?`),
   setBanned: db.prepare(`UPDATE users SET banned = ? WHERE id = ?`),
   makeAdmin: db.prepare(`UPDATE users SET is_admin = 1 WHERE id = ?`),
+  isAllowed: db.prepare(`SELECT 1 FROM allowed_emails WHERE email = ?`),
+  allowEmail: db.prepare(`INSERT OR IGNORE INTO allowed_emails (email, added_by, created_at) VALUES (?, ?, ?)`),
   searchUsers: db.prepare(`SELECT id, name FROM users WHERE banned = 0 AND id != ? AND name LIKE ? ESCAPE '\\' ORDER BY name LIMIT 30`),
   conv: db.prepare(`SELECT * FROM conversations WHERE id = ?`),
   isMember: db.prepare(`SELECT 1 FROM members WHERE conversation_id = ? AND user_id = ?`),
@@ -360,7 +366,9 @@ route('POST', '/api/register', async (req) => {
       throw loginFailed(req, 401, 'Questa email è registrata con un altro cognome');
     }
   } else {
-    if (LIST_ONLY) throw loginFailed(req, 403, "Email non presente nella lista dei partecipanti: usa quella con cui ti sei iscritto all'evento");
+    if (LIST_ONLY && !isAllowedEmail(email)) {
+      throw loginFailed(req, 403, 'Questa email non risulta tra i partecipanti della Global Reunion. Usa quella con cui hai prenotato il viaggio, oppure chiedi a un organizzatore di abilitarla.');
+    }
     if (JOIN_CODE && normalizeCode(body.joinCode) !== JOIN_CODE) throw loginFailed(req, 401, 'Codice evento non valido');
     const name = cleanName(`${firstName} ${lastName}`);
     const { lastInsertRowid } = q.insertUser.run(name, email, Date.now());
@@ -370,6 +378,10 @@ route('POST', '/api/register', async (req) => {
   if (ADMIN_EMAILS.has(email) && !user.is_admin) q.makeAdmin.run(user.id);
   return { status: 200, body: { ok: true }, headers: { 'Set-Cookie': startSession(user.id) } };
 });
+
+function isAllowedEmail(email) {
+  return ADMIN_EMAILS.has(email) || PARTICIPANT_HASHES.has(hashEmail(email)) || !!q.isAllowed.get(email);
+}
 
 route('POST', '/api/logout', async (req) => {
   const token = parseCookies(req)[COOKIE];
@@ -554,6 +566,18 @@ route('POST', '/api/admin/ban', async (req) => {
   return { ok: true };
 });
 
+// Abilita un'email che non è nell'elenco (es. iscritto con un indirizzo diverso).
+route('POST', '/api/admin/allow', async (req) => {
+  const user = auth(req);
+  requireAdmin(user);
+  const body = await readJson(req);
+  const email = normalizeEmail(body.email);
+  if (!isValidEmail(email)) throw new HttpError(400, 'Email non valida');
+  const already = isAllowedEmail(email) || !!q.userByEmail.get(email);
+  if (!already) q.allowEmail.run(email, user.id, Date.now());
+  return { ok: true, already };
+});
+
 route('GET', '/api/admin/stats', async (req) => {
   const user = auth(req);
   requireAdmin(user);
@@ -646,7 +670,7 @@ server.requestTimeout = 0;
 if (require.main === module) {
   server.listen(PORT, () => {
     console.log(`Chat nave in ascolto su http://localhost:${PORT}`);
-    if (LIST_ONLY) console.log('Accesso riservato alle email della lista partecipanti');
+    if (LIST_ONLY) console.log(`Accesso riservato ai partecipanti (${PARTICIPANT_HASHES.size} email in elenco)`);
     if (JOIN_CODE) console.log('Codice evento richiesto ai nuovi iscritti');
   });
 }

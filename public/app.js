@@ -706,10 +706,33 @@
     });
   }
 
+  // Per chi è iscritto all'evento con un'email diversa da quella che vuole usare.
+  function allowEmailDialog() {
+    openModal('Abilita un\'email', (body) => {
+      body.append(el('p', 'muted', 'Possono registrarsi solo le email dei partecipanti. Se qualcuno ha prenotato con un altro indirizzo, abilita qui quello che vuole usare.'));
+      const input = el('input');
+      input.type = 'text';
+      input.inputMode = 'email';
+      input.placeholder = 'nome@email.com';
+      const btn = el('button', 'btn', 'Abilita');
+      btn.type = 'button';
+      btn.addEventListener('click', async () => {
+        try {
+          const r = await api('POST', '/api/admin/allow', { email: input.value });
+          toast(r.already ? 'Questa email poteva già registrarsi' : 'Email abilitata: ora può registrarsi');
+          closeModal();
+        } catch (err) { toast(err.message); }
+      });
+      body.append(input, btn);
+      setTimeout(() => input.focus(), 50);
+    });
+  }
+
   $('#btn-menu').addEventListener('click', () => {
     openModal('Menu', (body) => {
       body.append(el('p', 'muted', 'Sei connesso come ' + state.me.name + (state.me.isAdmin ? ' ⭐ organizzatore' : '')));
       if (state.me.isAdmin) {
+        body.append(menuButton('✉️  Abilita un\'email (organizzatori)', allowEmailDialog));
         body.append(menuButton('📊  Statistiche', async () => {
           try {
             const s = await api('GET', '/api/admin/stats');

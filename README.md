@@ -55,18 +55,22 @@ nave, non il server.
 
 ## Chi può entrare
 
-Di default chiunque abbia il link può registrarsi con nome, cognome ed email.
-Per limitare l'accesso ci sono due opzioni, combinabili:
+Possono registrarsi **solo i partecipanti della Global Reunion**: le email delle
+prenotazioni e dei check-in Team e Staff (1529 persone). Nel repository non ci sono
+le email in chiaro, ma solo le loro impronte SHA-256 nel file `partecipanti.sha256`:
+basta per riconoscere chi si registra senza rendere leggibile l'elenco.
 
-- **Solo la lista partecipanti** (consigliato per l'evento): importate il CSV degli
-  iscritti e avviate con `SOLO_ISCRITTI=1`. Entra solo chi usa l'email con cui si è
-  iscritto al viaggio.
-- **Codice evento**: con `JOIN_CODE=CROCIERA2026` chi si registra per la prima
-  volta deve inserire anche il codice evento, comunicato per esempio su un cartello a bordo.
+- **Chi ha prenotato con un'altra email** non riesce a registrarsi. Gli organizzatori
+  la abilitano dal menu ⋮ → "Abilita un'email".
+- **Per aggiornare l'elenco** (nuove prenotazioni) esportate i fogli in CSV e lanciate
+  `node scripts/allowlist.js prenotazioni.csv checkin-team.csv checkin-staff.csv`,
+  passando sempre tutti gli elenchi insieme.
+- `SOLO_ISCRITTI=0` riapre la registrazione a chiunque abbia il link.
+- `JOIN_CODE=...` chiede anche un codice evento ai nuovi iscritti.
 
 Per rientrare bastano email e cognome. È comodo, ma vuol dire che chi conosce
-email e cognome di qualcun altro potrebbe entrare al suo posto. Per una chat
-tra partecipanti di un evento è un compromesso ragionevole. Non usatela per
+email e cognome di un altro partecipante potrebbe entrare al suo posto. Per una
+chat tra partecipanti di un evento è un compromesso ragionevole. Non usatela per
 informazioni riservate.
 
 ### Importare la lista partecipanti
@@ -154,7 +158,7 @@ docker exec <container> node scripts/import.js partecipanti.csv
 |---|---|---|
 | `PORT` | `3000` | Porta HTTP |
 | `DATA_DIR` | `./data` | Cartella del database `chat.db` (fatene un backup!) |
-| `SOLO_ISCRITTI` | non impostata | Con `1` entrano solo le email importate dalla lista |
+| `SOLO_ISCRITTI` | automatico | Attivo se esiste `partecipanti.sha256`; `0` apre a tutti, `1` lo forza |
 | `JOIN_CODE` | non impostata | Codice evento richiesto ai nuovi iscritti |
 | `ADMIN_EMAILS` | non impostata | Altri organizzatori oltre a `organizzatori.txt`, separati da virgola |
 | `SECURE_COOKIE` | `1` | Mettere `0` solo per le prove in locale senza HTTPS |
