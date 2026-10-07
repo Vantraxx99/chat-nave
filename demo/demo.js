@@ -11,13 +11,13 @@ function createDemoServer() {
     'Tommaso De Luca', 'Camilla Pellegrini', 'Nicola Ferrara', 'Giorgia Bianco', 'Lorenzo Villa',
   ];
   const CHATTER = [
-    'Qualcuno ha visto il tramonto dal ponte 9? 🌅', 'Chi viene in piscina dopo pranzo?',
-    'Il buffet di stasera è da 10 e lode 🍝', 'Ragazzi che vista stamattina!!', 'Ci vediamo al bar centrale alle 18 🍹',
-    'Qualcuno ha un caricabatterie USB-C da prestare?', 'Questa nave è enorme, mi sono perso 3 volte 😂',
-    'Stasera festa sul ponte, outfit bianco ricordate! 🤍', 'Chi era al tour di Mykonos? Foto pazzesche',
-    'Ho trovato un gruppo per il torneo di beach volley, chi si unisce?', 'Buongiorno global reunion! ☀️',
+    'Anyone seen the sunset from deck 9? 🌅', 'Who\'s coming to the pool after lunch?',
+    'Tonight\'s buffet is a 10/10 🍝', 'Guys, what a view this morning!!', 'Meet at the main bar at 6pm 🍹',
+    'Anyone have a USB-C charger to lend?', 'This ship is huge, I got lost 3 times 😂',
+    'Deck party tonight, remember to wear white! 🤍', 'Who was on the Mykonos tour? Amazing photos',
+    'Found a group for the beach volley tournament, who\'s in?', 'Good morning Global Reunion! ☀️',
   ];
-  const REPLIES = ['Ciao! 😊', 'Certo, ci sto!', 'Ahah top 😂', 'Ci vediamo lì allora!', 'Grande, a dopo 🙌', 'Che bello! Io sono al ponte 7'];
+  const REPLIES = ['Hi! 😊', 'Sure, I\'m in!', 'Haha amazing 😂', 'See you there then!', 'Great, see you later 🙌', 'Nice! I\'m on deck 7'];
 
   const now = Date.now();
   const users = new Map();
@@ -29,9 +29,9 @@ function createDemoServer() {
   const convs = new Map();
   let nextConv = 1;
   const addConv = (type, name, members = []) => { const c = { id: nextConv++, type, name, members: new Set(members) }; convs.set(c.id, c); return c; };
-  const announce = addConv('announce', '📢 Annunci');
+  const announce = addConv('announce', '📢 Announcements');
   // Un gruppo creato dai partecipanti: chi entra nell'anteprima viene aggiunto.
-  const party = addConv('group', '🎶 Festa sul ponte', people.slice(0, 12).map((u) => u.id));
+  const party = addConv('group', '🎶 Deck party', people.slice(0, 12).map((u) => u.id));
 
   const messages = [];
   let nextMsg = 1, seq = 0;
@@ -45,9 +45,9 @@ function createDemoServer() {
     return m;
   }
   // Storia iniziale
-  post(announce, staff, 'Benvenuti a bordo della Global Reunion – Cruise Edition! 🚢 Qui troverete tutte le comunicazioni ufficiali.', now - 5 * 3600e3);
-  post(announce, staff, '🕗 Stasera alle 21:00 party di benvenuto sul ponte 11. Dress code: bianco!', now - 2 * 3600e3);
-  post(party, people[0], `👋 ${people[0].name} ha creato il gruppo "🎶 Festa sul ponte"`, now - 3 * 3600e3);
+  post(announce, staff, 'Welcome aboard the Global Reunion – Cruise Edition! 🚢 All official updates will be posted here.', now - 5 * 3600e3);
+  post(announce, staff, '🕗 Welcome party tonight at 9pm on deck 11. Dress code: white!', now - 2 * 3600e3);
+  post(party, people[0], `👋 ${people[0].name} created the group "🎶 Deck party"`, now - 3 * 3600e3);
   for (let i = 0; i < 12; i++) {
     const u = people[(i * 5) % 12];
     post(party, u, CHATTER[i % CHATTER.length], now - (12 - i) * 9 * 60e3);
@@ -74,7 +74,7 @@ function createDemoServer() {
 
   function getConv(id) {
     const c = convs.get(Number(id));
-    if (!c || !visible(c)) throw err(404, 'Chat non trovata');
+    if (!c || !visible(c)) throw err(404, 'Chat not found');
     return c;
   }
 
@@ -101,18 +101,18 @@ function createDemoServer() {
     if (method === 'POST' && p === '/api/register') {
       const first = String(body.firstName || '').trim(), last = String(body.lastName || '').trim();
       const email = String(body.email || '').trim();
-      if (!first || !last) throw err(400, 'Inserisci nome e cognome');
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw err(400, 'Email non valida');
+      if (!first || !last) throw err(400, 'Please enter your first and last name');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw err(400, 'Invalid email');
       // In anteprima sei un organizzatore, così vedi tutte le funzioni.
       me = addUser(`${first} ${last}`, { isAdmin: true });
       party.members.add(me.id);
       setTimeout(() => {
         const dm = addConv('dm', null, [me.id, people[0].id]);
-        post(dm, people[0], `Ciao ${first}! Ci vediamo stasera alla festa? 🎉`);
+        post(dm, people[0], `Hi ${first}! See you at the party tonight? 🎉`);
       }, 4000);
       return { ok: true };
     }
-    if (!me) throw err(401, 'Non autenticato');
+    if (!me) throw err(401, 'Not signed in');
     if (method === 'POST' && p === '/api/logout') { me = null; return { ok: true }; }
     if (method === 'GET' && p === '/api/me') {
       return { user: { id: me.id, name: me.name, isAdmin: me.isAdmin }, cursor: seq, conversations: [...convs.values()].filter(visible).map(summary) };
@@ -129,9 +129,9 @@ function createDemoServer() {
         const list = messages.filter((x) => x.conversationId === c.id && x.id < before).slice(-50);
         return { messages: list.map((x) => ({ ...x })), hasMore: false };
       }
-      if (c.type === 'announce' && !me.isAdmin) throw err(403, 'Solo gli organizzatori possono scrivere qui');
+      if (c.type === 'announce' && !me.isAdmin) throw err(403, 'Only organisers can post here');
       const text = String(body.text || '').trim();
-      if (!text) throw err(400, 'Messaggio vuoto');
+      if (!text) throw err(400, 'Empty message');
       const msg = post(c, me, text);
       reads.set(`${me.id}:${c.id}`, msg.id);
       if (c.type === 'dm') botReply(c, users.get([...c.members].find((id) => id !== me.id)));
@@ -145,42 +145,42 @@ function createDemoServer() {
     }
     if (method === 'POST' && p === '/api/dm') {
       const other = users.get(Number(body.userId));
-      if (!other) throw err(404, 'Utente non trovato');
+      if (!other) throw err(404, 'User not found');
       let c = [...convs.values()].find((x) => x.type === 'dm' && x.members.has(me.id) && x.members.has(other.id));
       if (!c) c = addConv('dm', null, [me.id, other.id]);
       return { id: c.id };
     }
     if (method === 'POST' && p === '/api/groups') {
       const name = String(body.name || '').trim();
-      if (name.length < 2) throw err(400, 'Dai un nome al gruppo');
+      if (name.length < 2) throw err(400, 'Give the group a name');
       const c = addConv('group', name, [me.id, ...(body.memberIds || [])]);
-      post(c, me, `👋 ${me.name} ha creato il gruppo "${name}"`);
+      post(c, me, `👋 ${me.name} created the group "${name}"`);
       return { id: c.id };
     }
     if ((m = p.match(/^\/api\/conversations\/(\d+)\/members$/))) {
       const c = getConv(m[1]);
       const added = (body.userIds || []).filter((id) => !c.members.has(id)).map((id) => { c.members.add(id); return users.get(id).name; });
-      if (added.length) post(c, me, `➕ ${me.name} ha aggiunto ${added.join(', ')}`);
+      if (added.length) post(c, me, `➕ ${me.name} added ${added.join(', ')}`);
       return { ok: true };
     }
     if ((m = p.match(/^\/api\/conversations\/(\d+)\/leave$/))) {
       const c = getConv(m[1]);
-      post(c, me, `🚪 ${me.name} ha lasciato il gruppo`);
+      post(c, me, `🚪 ${me.name} left the group`);
       c.members.delete(me.id);
       return { ok: true };
     }
     if ((m = p.match(/^\/api\/messages\/(\d+)$/)) && method === 'DELETE') {
       const msg = messages.find((x) => x.id === Number(m[1]));
-      if (!msg) throw err(404, 'Messaggio non trovato');
+      if (!msg) throw err(404, 'Message not found');
       msg.deleted = true; msg.text = ''; msg.seq = ++seq;
       for (const w of [...waiters]) w();
       return { ok: true };
     }
     if (method === 'POST' && p === '/api/admin/channels') {
       const name = String(body.name || '').trim();
-      if (name.length < 2) throw err(400, 'Nome canale troppo corto');
+      if (name.length < 2) throw err(400, 'Channel name too short');
       const c = addConv(body.announce ? 'announce' : 'public', name);
-      post(c, me, `Nuovo canale: ${name}`);
+      post(c, me, `New channel: ${name}`);
       return { id: c.id };
     }
     if (method === 'POST' && p === '/api/admin/ban') {
@@ -191,7 +191,7 @@ function createDemoServer() {
     if (method === 'GET' && p === '/api/admin/stats') {
       return { online: 1, users: users.size, messages: messages.length, conversations: convs.size };
     }
-    throw err(404, 'Non trovato');
+    throw err(404, 'Not found');
   }
 
   function poll(since) {

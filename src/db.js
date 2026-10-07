@@ -89,9 +89,11 @@ db.exec(`
 function ensureDefaultChannels() {
   // Il vecchio canale generale "Tutti a bordo" (creato dal sistema) non esiste più.
   db.prepare(`DELETE FROM conversations WHERE type = 'public' AND name = '🚢 Tutti a bordo' AND created_by IS NULL`).run();
+  // L'app è in inglese: il canale si chiama "Announcements".
+  db.prepare(`UPDATE conversations SET name = '📢 Announcements' WHERE type = 'announce' AND created_by IS NULL AND name = '📢 Annunci'`).run();
   const count = db.prepare(`SELECT COUNT(*) AS n FROM conversations WHERE type = 'announce' AND created_by IS NULL`).get().n;
   if (count > 0) return;
-  db.prepare(`INSERT INTO conversations (type, name, created_at) VALUES ('announce', '📢 Annunci', ?)`).run(Date.now());
+  db.prepare(`INSERT INTO conversations (type, name, created_at) VALUES ('announce', '📢 Announcements', ?)`).run(Date.now());
 }
 ensureDefaultChannels();
 

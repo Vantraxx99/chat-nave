@@ -69,7 +69,7 @@ test('le notifiche arrivano a chi deve riceverle e non ha l\'app davanti', async
     await staff('POST', `/api/conversations/${announce}/messages`, { text: 'Cena alle 20' });
     await settle();
     assert.deepEqual(sent.map((s) => s.endpoint).sort(), ['https://push.example/anna', 'https://push.example/bruno']);
-    assert.equal(sent[0].title, '📢 Annunci');
+    assert.equal(sent[0].title, '📢 Announcements');
 
     // Disiscrizione
     await bruno('POST', '/api/push/unsubscribe', { endpoint: 'https://push.example/bruno' });

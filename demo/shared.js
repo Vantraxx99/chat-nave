@@ -27,11 +27,11 @@
     if (db && uid) {
       try {
         const shared = await createShared(db, uid);
-        setBanner('Prova condivisa: i messaggi arrivano davvero a tutti quelli invitati a questa pagina.');
+        setBanner('Shared test: messages really reach everyone invited to this page.');
         return shared;
       } catch (e) { console.warn('Archivio condiviso non disponibile, uso la simulazione', e); }
     }
-    setBanner('Anteprima: i messaggi e gli altri partecipanti sono simulati e restano solo su questo dispositivo.');
+    setBanner('Preview: messages and other participants are simulated and stay on this device only.');
     return window.createDemoServer();
   }
   const backend = () => (backendPromise = backendPromise || init());
@@ -100,7 +100,8 @@
     ]);
 
     // Canali di default con id fissi: crearli due volte non fa danni.
-    if (!convs.has(1)) await db.doc('convs/1').set({ n: 1, type: 'announce', name: '📢 Annunci', members: [] });
+    if (!convs.has(1)) await db.doc('convs/1').set({ n: 1, type: 'announce', name: '📢 Announcements', members: [] });
+    else if (convs.get(1).name === '📢 Annunci') { await db.doc('convs/1').update({ name: '📢 Announcements' }); convs.get(1).name = '📢 Announcements'; }
     // Il canale generale "Tutti a bordo" non esiste più: lo togliamo se c'era.
     if (convs.has(2) && convs.get(2).type === 'public') { await db.doc('convs/2').delete(); convs.delete(2); }
 
@@ -133,7 +134,7 @@
 
     function getConv(id) {
       const c = convs.get(Number(id));
-      if (!visible(c)) throw err(404, 'Chat non trovata');
+      if (!visible(c)) throw err(404, 'Chat not found');
       return c;
     }
 
@@ -162,21 +163,21 @@
       if (method === 'POST' && p === '/api/register') {
         const first = String(body.firstName || '').trim(), last = String(body.lastName || '').trim();
         const email = String(body.email || '').trim().toLowerCase();
-        if (!first || !last) throw err(400, 'Inserisci nome e cognome');
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw err(400, 'Email non valida');
+        if (!first || !last) throw err(400, 'Please enter your first and last name');
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw err(400, 'Invalid email');
         const prev = meUser();
-        if (prev && bans.has(prev.n)) throw err(403, 'Account sospeso');
+        if (prev && bans.has(prev.n)) throw err(403, 'Account suspended');
         const doc = { n: prev ? prev.n : newId(), name: `${first} ${last}`.replace(/\s+/g, ' ').slice(0, 60), email, isAdmin: ORGANIZERS.includes(email), at: Date.now() };
         try { await db.doc('users/' + uid).set(doc); }
-        catch (e) { throw err(403, 'Non hai il permesso di scrivere in questa pagina: chiedi di essere invitato come Editor.'); }
+        catch (e) { throw err(403, 'You don\'t have permission to post on this page: ask to be invited as an Editor.'); }
         users.set(doc.n, { ...doc, uid });
         loggedOut = false;
         try { localStorage.removeItem('gr-shared-out'); } catch {}
         return { ok: true };
       }
       const self = me();
-      if (!self) throw err(401, 'Non autenticato');
-      if (bans.has(self.n)) throw err(403, 'Account sospeso');
+      if (!self) throw err(401, 'Not signed in');
+      if (bans.has(self.n)) throw err(403, 'Account suspended');
       if (method === 'POST' && p === '/api/logout') {
         loggedOut = true;
         try { localStorage.setItem('gr-shared-out', '1'); } catch {}
@@ -197,10 +198,10 @@
           const list = convMsgs(c.n).filter((x) => x.id < before);
           return { messages: list.slice(-50), hasMore: false };
         }
-        if (c.type === 'announce' && !self.isAdmin) throw err(403, 'Solo gli organizzatori possono scrivere qui');
+        if (c.type === 'announce' && !self.isAdmin) throw err(403, 'Only organisers can post here');
         const text = String(body.text || '').trim();
-        if (!text) throw err(400, 'Messaggio vuoto');
-        if (text.length > 1000) throw err(400, 'Massimo 1000 caratteri');
+        if (!text) throw err(400, 'Empty message');
+        if (text.length > 1000) throw err(400, 'Maximum 1000 characters');
         return { message: await post(c, text) };
       }
       if ((m = p.match(/^\/api\/conversations\/(\d+)\/read$/))) {
@@ -210,7 +211,7 @@
       }
       if (method === 'POST' && p === '/api/dm') {
         const other = users.get(Number(body.userId));
-        if (!other || other.n === self.n) throw err(404, 'Utente non trovato');
+        if (!other || other.n === self.n) throw err(404, 'User not found');
         const key = [self.n, other.n].sort((a, b) => a - b).join('-');
         const c = [...convs.values()].find((x) => x.type === 'dm' && x.dmKey === key)
           || await (async () => { const n = newId(); const d = { n, type: 'dm', name: null, dmKey: key, members: [self.n, other.n] }; await db.doc('convs/' + n).set(d); convs.set(n, d); return d; })();
@@ -218,9 +219,9 @@
       }
       if (method === 'POST' && p === '/api/groups') {
         const name = String(body.name || '').trim().slice(0, 60);
-        if (name.length < 2) throw err(400, 'Dai un nome al gruppo');
+        if (name.length < 2) throw err(400, 'Give the group a name');
         const c = await createConv('group', name, [self.n, ...(body.memberIds || []).map(Number)]);
-        await post(c, `👋 ${self.name} ha creato il gruppo "${name}"`);
+        await post(c, `👋 ${self.name} created the group "${name}"`);
         return { id: c.n };
       }
       if ((m = p.match(/^\/api\/conversations\/(\d+)\/members$/))) {
@@ -228,43 +229,43 @@
         const ids = (body.userIds || []).map(Number).filter((id) => users.has(id) && !c.members.includes(id));
         if (ids.length) {
           await db.doc('convs/' + c.n).update({ members: [...c.members, ...ids] });
-          await post(c, `➕ ${self.name} ha aggiunto ${ids.map((id) => users.get(id).name).join(', ')}`);
+          await post(c, `➕ ${self.name} added ${ids.map((id) => users.get(id).name).join(', ')}`);
         }
         return { ok: true };
       }
       if ((m = p.match(/^\/api\/conversations\/(\d+)\/leave$/))) {
         const c = getConv(m[1]);
-        await post(c, `🚪 ${self.name} ha lasciato il gruppo`);
+        await post(c, `🚪 ${self.name} left the group`);
         await db.doc('convs/' + c.n).update({ members: c.members.filter((id) => id !== self.n) });
         return { ok: true };
       }
       if ((m = p.match(/^\/api\/messages\/(\d+)$/)) && method === 'DELETE') {
         const msg = msgs.get(Number(m[1]));
-        if (!msg) throw err(404, 'Messaggio non trovato');
-        if (msg.userId !== self.n && !self.isAdmin) throw err(403, 'Non puoi eliminare questo messaggio');
+        if (!msg) throw err(404, 'Message not found');
+        if (msg.userId !== self.n && !self.isAdmin) throw err(403, 'You cannot delete this message');
         await db.doc('msgs/' + msg.id).update({ del: true, t: '' });
         return { ok: true };
       }
       if (method === 'POST' && p === '/api/admin/channels') {
-        if (!self.isAdmin) throw err(403, 'Solo gli organizzatori');
+        if (!self.isAdmin) throw err(403, 'Organisers only');
         const name = String(body.name || '').trim().slice(0, 60);
-        if (name.length < 2) throw err(400, 'Nome canale troppo corto');
+        if (name.length < 2) throw err(400, 'Channel name too short');
         const c = await createConv(body.announce ? 'announce' : 'public', name, []);
-        await post(c, `Nuovo canale: ${name}`);
+        await post(c, `New channel: ${name}`);
         return { id: c.n };
       }
       if (method === 'POST' && p === '/api/admin/ban') {
-        if (!self.isAdmin) throw err(403, 'Solo gli organizzatori');
+        if (!self.isAdmin) throw err(403, 'Organisers only');
         const t = users.get(Number(body.userId));
-        if (!t) throw err(404, 'Utente non trovato');
-        if (t.isAdmin) throw err(400, 'Non puoi sospendere un organizzatore');
+        if (!t) throw err(404, 'User not found');
+        if (t.isAdmin) throw err(400, 'You cannot suspend an organiser');
         await db.doc('bans/' + t.n).set({ n: t.n });
         return { ok: true };
       }
       if (method === 'GET' && p === '/api/admin/stats') {
         return { online: users.size, users: users.size, messages: msgs.size, conversations: convs.size };
       }
-      throw err(404, 'Non trovato');
+      throw err(404, 'Not found');
     }
 
     function poll(since) {

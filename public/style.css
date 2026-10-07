@@ -76,6 +76,9 @@
 /* Comportamento da app: niente zoom con doppio tocco, niente "rimbalzo" della pagina,
    niente selezione accidentale dell'interfaccia (il testo dei messaggi resta selezionabile). */
 html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; touch-action: manipulation; }
+/* Su iPhone, aperta dalla Home, la pagina scorre sotto la barra di stato (black-translucent):
+   lo sfondo del documento è blu, così dietro ora e batteria si vede sempre il blu della testata. */
+html { background: var(--brand); }
 /* Safari su iPhone ignora overflow:hidden sul documento: fissiamo la pagina allo schermo,
    così scorrono solo lista e messaggi. L'altezza segue lo spazio sopra la tastiera (--app-h). */
 body { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h, 100%); width: 100%; }
@@ -104,7 +107,8 @@ input, textarea { font: inherit; color: inherit; }
 .brand-logo { width: min(100%, 340px); height: auto; display: block; margin: 0 auto; }
 .brand-sub { margin: 10px 0 0; font-size: 15px; font-weight: 600; }
 #login {
-  display: flex; align-items: center; justify-content: center; padding: 16px 16px 110px; overflow-y: auto;
+  display: flex; align-items: center; justify-content: center; overflow-y: auto;
+  padding: max(16px, env(safe-area-inset-top)) 16px 110px;
   background: var(--brand) url(/waves.jpg) repeat-x center bottom / auto 110px;
 }
 .login-wrap { width: 100%; max-width: 400px; margin: auto; }

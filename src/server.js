@@ -209,7 +209,7 @@ setInterval(() => {
 }, FAIL_WINDOW).unref();
 function checkLoginAllowed(req) {
   const f = loginFailures.get(clientIp(req));
-  if (f && Date.now() - f.start <= FAIL_WINDOW && f.n >= MAX_FAILS) throw new HttpError(429, 'Troppi tentativi, riprova tra qualche minuto');
+  if (f && Date.now() - f.start <= FAIL_WINDOW && f.n >= MAX_FAILS) throw new HttpError(429, 'Too many attempts, please try again in a few minutes');
 }
 function loginFailed(req, status, message) {
   const ip = clientIp(req);
@@ -260,17 +260,17 @@ function readJson(req) {
   return new Promise((resolve, reject) => {
     const ct = String(req.headers['content-type'] || '');
     // Richiedere JSON blocca i form cross-site (protezione CSRF insieme a SameSite).
-    if (!ct.startsWith('application/json')) return reject(new HttpError(415, 'Content-Type non valido'));
+    if (!ct.startsWith('application/json')) return reject(new HttpError(415, 'Invalid Content-Type'));
     let size = 0;
     const chunks = [];
     req.on('data', (c) => {
       size += c.length;
-      if (size > MAX_BODY) { reject(new HttpError(413, 'Richiesta troppo grande')); req.destroy(); return; }
+      if (size > MAX_BODY) { reject(new HttpError(413, 'Request too large')); req.destroy(); return; }
       chunks.push(c);
     });
     req.on('end', () => {
       try { resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}); }
-      catch { reject(new HttpError(400, 'JSON non valido')); }
+      catch { reject(new HttpError(400, 'Invalid JSON')); }
     });
     req.on('error', reject);
   });
@@ -292,13 +292,13 @@ function sessionCookie(token, maxAge) {
 function auth(req) {
   const token = parseCookies(req)[COOKIE];
   const user = token && q.sessionUser.get(token);
-  if (!user) throw new HttpError(401, 'Non autenticato');
-  if (user.banned) throw new HttpError(403, 'Account sospeso');
+  if (!user) throw new HttpError(401, 'Not signed in');
+  if (user.banned) throw new HttpError(403, 'Account suspended');
   return user;
 }
 
 function requireAdmin(user) {
-  if (!user.is_admin) throw new HttpError(403, 'Solo gli organizzatori');
+  if (!user.is_admin) throw new HttpError(403, 'Organisers only');
 }
 
 function clientIp(req) {
@@ -313,7 +313,7 @@ function startSession(userId) {
 
 function getConvOr404(id, user) {
   const conv = q.conv.get(Number(id));
-  if (!canSee(conv, user.id)) throw new HttpError(404, 'Chat non trovata');
+  if (!canSee(conv, user.id)) throw new HttpError(404, 'Chat not found');
   return conv;
 }
 
@@ -379,24 +379,24 @@ route('POST', '/api/register', async (req) => {
   const firstName = cleanName(body.firstName);
   const lastName = cleanName(body.lastName);
   const email = normalizeEmail(body.email);
-  if (!firstName || !lastName) throw new HttpError(400, 'Inserisci nome e cognome');
-  if (!isValidEmail(email)) throw new HttpError(400, 'Email non valida');
+  if (!firstName || !lastName) throw new HttpError(400, 'Please enter your first and last name');
+  if (!isValidEmail(email)) throw new HttpError(400, 'Invalid email');
 
   let user = q.userByEmail.get(email);
   if (user) {
     if (!surnameMatches(user.name, lastName)) {
-      throw loginFailed(req, 401, 'Questa email è registrata con un altro cognome');
+      throw loginFailed(req, 401, 'This email is registered with a different last name');
     }
   } else {
     if (LIST_ONLY && !isAllowedEmail(email)) {
-      throw loginFailed(req, 403, 'Questa email non risulta tra i partecipanti della Global Reunion. Usa quella con cui hai prenotato il viaggio, oppure chiedi a un organizzatore di abilitarla.');
+      throw loginFailed(req, 403, 'This email is not on the Global Reunion participant list. Use the one you booked the trip with, or ask an organiser to allow it.');
     }
-    if (JOIN_CODE && normalizeCode(body.joinCode) !== JOIN_CODE) throw loginFailed(req, 401, 'Codice evento non valido');
+    if (JOIN_CODE && normalizeCode(body.joinCode) !== JOIN_CODE) throw loginFailed(req, 401, 'Invalid event code');
     const name = cleanName(`${firstName} ${lastName}`);
     const { lastInsertRowid } = q.insertUser.run(name, email, Date.now());
     user = q.userById.get(lastInsertRowid);
   }
-  if (user.banned) throw new HttpError(403, 'Account sospeso');
+  if (user.banned) throw new HttpError(403, 'Account suspended');
   if (ADMIN_EMAILS.has(email) && !user.is_admin) q.makeAdmin.run(user.id);
   return { status: 200, body: { ok: true }, headers: { 'Set-Cookie': startSession(user.id) } };
 });
@@ -448,12 +448,12 @@ route('GET', '/api/conversations/:id/messages', async (req, res, { id }, url) =>
 route('POST', '/api/conversations/:id/messages', async (req, res, { id }) => {
   const user = auth(req);
   const conv = getConvOr404(id, user);
-  if (conv.type === 'announce' && !user.is_admin) throw new HttpError(403, 'Solo gli organizzatori possono scrivere qui');
-  if (!msgLimit(user.id)) throw new HttpError(429, 'Stai scrivendo troppo velocemente');
+  if (conv.type === 'announce' && !user.is_admin) throw new HttpError(403, 'Only organisers can post here');
+  if (!msgLimit(user.id)) throw new HttpError(429, 'You are sending messages too fast');
   const body = await readJson(req);
   const text = String(body.text || '').replace(/\r\n/g, '\n').trim();
-  if (!text) throw new HttpError(400, 'Messaggio vuoto');
-  if (text.length > MAX_TEXT) throw new HttpError(400, `Massimo ${MAX_TEXT} caratteri`);
+  if (!text) throw new HttpError(400, 'Empty message');
+  if (text.length > MAX_TEXT) throw new HttpError(400, `Maximum ${MAX_TEXT} characters`);
   return { message: publicMsg(postMessage(conv, user.id, text)) };
 });
 
@@ -470,7 +470,7 @@ route('POST', '/api/dm', async (req) => {
   const user = auth(req);
   const body = await readJson(req);
   const other = q.userById.get(Number(body.userId));
-  if (!other || other.banned || other.id === user.id) throw new HttpError(404, 'Utente non trovato');
+  if (!other || other.banned || other.id === user.id) throw new HttpError(404, 'User not found');
   const key = [user.id, other.id].sort((a, b) => a - b).join(':');
   let conv = q.dmByKey.get(key);
   if (!conv) {
@@ -488,20 +488,20 @@ route('POST', '/api/dm', async (req) => {
 
 route('POST', '/api/groups', async (req) => {
   const user = auth(req);
-  if (!createLimit(user.id)) throw new HttpError(429, 'Troppi gruppi creati, riprova tra poco');
+  if (!createLimit(user.id)) throw new HttpError(429, 'Too many groups created, please try again shortly');
   const body = await readJson(req);
   const name = cleanName(body.name);
-  if (name.length < 2) throw new HttpError(400, 'Dai un nome al gruppo');
+  if (name.length < 2) throw new HttpError(400, 'Give the group a name');
   const ids = Array.isArray(body.memberIds) ? body.memberIds.map(Number).filter(Boolean).slice(0, 256) : [];
   const conv = createGroupLike('group', name, user.id, ids);
-  postMessage(conv, user.id, `👋 ${user.name} ha creato il gruppo "${name}"`);
+  postMessage(conv, user.id, `👋 ${user.name} created the group "${name}"`);
   return { id: conv.id };
 });
 
 route('POST', '/api/conversations/:id/members', async (req, res, { id }) => {
   const user = auth(req);
   const conv = getConvOr404(id, user);
-  if (conv.type !== 'group') throw new HttpError(400, 'Si possono aggiungere persone solo ai gruppi');
+  if (conv.type !== 'group') throw new HttpError(400, 'People can only be added to groups');
   const body = await readJson(req);
   const ids = Array.isArray(body.userIds) ? body.userIds.map(Number).filter(Boolean).slice(0, 256) : [];
   const added = [];
@@ -509,15 +509,15 @@ route('POST', '/api/conversations/:id/members', async (req, res, { id }) => {
     const u = q.userById.get(uid);
     if (u && !u.banned && !q.isMember.get(conv.id, uid)) { q.addMember.run(conv.id, uid); added.push(u.name); }
   }
-  if (added.length) postMessage(conv, user.id, `➕ ${user.name} ha aggiunto ${added.join(', ')}`);
+  if (added.length) postMessage(conv, user.id, `➕ ${user.name} added ${added.join(', ')}`);
   return { ok: true };
 });
 
 route('POST', '/api/conversations/:id/leave', async (req, res, { id }) => {
   const user = auth(req);
   const conv = getConvOr404(id, user);
-  if (conv.type !== 'group') throw new HttpError(400, 'Puoi uscire solo dai gruppi');
-  postMessage(conv, user.id, `🚪 ${user.name} ha lasciato il gruppo`);
+  if (conv.type !== 'group') throw new HttpError(400, 'You can only leave groups');
+  postMessage(conv, user.id, `🚪 ${user.name} left the group`);
   q.removeMember.run(conv.id, user.id);
   return { ok: true };
 });
@@ -525,9 +525,9 @@ route('POST', '/api/conversations/:id/leave', async (req, res, { id }) => {
 route('DELETE', '/api/messages/:id', async (req, res, { id }) => {
   const user = auth(req);
   const msg = q.msgById.get(Number(id));
-  if (!msg) throw new HttpError(404, 'Messaggio non trovato');
+  if (!msg) throw new HttpError(404, 'Message not found');
   const conv = getConvOr404(msg.conversation_id, user);
-  if (msg.user_id !== user.id && !user.is_admin) throw new HttpError(403, 'Non puoi eliminare questo messaggio');
+  if (msg.user_id !== user.id && !user.is_admin) throw new HttpError(403, 'You cannot delete this message');
   q.deleteMsg.run(nextSeq(), msg.id);
   notify(conv);
   return { ok: true };
@@ -572,7 +572,7 @@ route('GET', '/api/push/key', async (req) => {
 route('POST', '/api/push/subscribe', async (req) => {
   const user = auth(req);
   const body = await readJson(req);
-  if (!push.subscribe(user.id, body.subscription)) throw new HttpError(400, 'Iscrizione alle notifiche non valida');
+  if (!push.subscribe(user.id, body.subscription)) throw new HttpError(400, 'Invalid notification subscription');
   return { ok: true };
 });
 
@@ -589,10 +589,10 @@ route('POST', '/api/admin/channels', async (req) => {
   requireAdmin(user);
   const body = await readJson(req);
   const name = cleanName(body.name);
-  if (name.length < 2) throw new HttpError(400, 'Nome canale troppo corto');
+  if (name.length < 2) throw new HttpError(400, 'Channel name too short');
   const type = body.announce ? 'announce' : 'public';
   const conv = createGroupLike(type, name, user.id, []);
-  postMessage(conv, user.id, `Nuovo canale: ${name}`);
+  postMessage(conv, user.id, `New channel: ${name}`);
   return { id: conv.id };
 });
 
@@ -601,8 +601,8 @@ route('POST', '/api/admin/ban', async (req) => {
   requireAdmin(user);
   const body = await readJson(req);
   const target = q.userById.get(Number(body.userId));
-  if (!target) throw new HttpError(404, 'Utente non trovato');
-  if (target.is_admin) throw new HttpError(400, 'Non puoi sospendere un organizzatore');
+  if (!target) throw new HttpError(404, 'User not found');
+  if (target.is_admin) throw new HttpError(400, 'You cannot suspend an organiser');
   const banned = body.banned === false ? 0 : 1;
   q.setBanned.run(banned, target.id);
   if (banned) q.deleteUserSessions.run(target.id);
@@ -615,7 +615,7 @@ route('POST', '/api/admin/allow', async (req) => {
   requireAdmin(user);
   const body = await readJson(req);
   const email = normalizeEmail(body.email);
-  if (!isValidEmail(email)) throw new HttpError(400, 'Email non valida');
+  if (!isValidEmail(email)) throw new HttpError(400, 'Invalid email');
   const already = isAllowedEmail(email) || !!q.userByEmail.get(email);
   if (!already) q.allowEmail.run(email, user.id, Date.now());
   return { ok: true, already };
@@ -663,7 +663,7 @@ function serveStatic(req, res, pathname) {
   let rel = decodeURIComponent(pathname);
   if (rel === '/' || !path.extname(rel)) rel = '/index.html';
   const entry = loadStatic(rel.replace(/^\/+/, ''));
-  if (!entry) return send(req, res, 404, { error: 'Non trovato' });
+  if (!entry) return send(req, res, 404, { error: 'Not found' });
   const headers = { 'Content-Type': entry.type, ETag: entry.etag, 'Cache-Control': entry.cache, Vary: 'Accept-Encoding' };
   if (req.headers['if-none-match'] === entry.etag) { res.writeHead(304, headers); return res.end(); }
   const gzip = entry.compress && /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''));
@@ -686,7 +686,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   try {
     if (!url.pathname.startsWith('/api/') && url.pathname !== '/healthz') {
-      if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Metodo non consentito');
+      if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Method not allowed');
       return serveStatic(req, res, url.pathname);
     }
     for (const r of routes) {
@@ -698,11 +698,11 @@ const server = http.createServer(async (req, res) => {
       if (out && out.status) return send(req, res, out.status, out.body, out.headers);
       return send(req, res, 200, out);
     }
-    throw new HttpError(404, 'Non trovato');
+    throw new HttpError(404, 'Not found');
   } catch (err) {
     if (!(err instanceof HttpError)) console.error(err);
     if (res.headersSent || res.destroyed) return;
-    send(req, res, err.status || 500, { error: err instanceof HttpError ? err.message : 'Errore del server' });
+    send(req, res, err.status || 500, { error: err instanceof HttpError ? err.message : 'Server error' });
   }
 });
 

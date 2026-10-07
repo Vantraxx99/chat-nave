@@ -26,7 +26,7 @@ const index = read('public/index.html');
 const body = index.slice(index.indexOf('<body>') + 6, index.indexOf('<script src="/app.js">')).trim();
 const title = index.match(/<title>(.*?)<\/title>/)[1];
 
-const banner = `<div class="demo-banner">Anteprima: i messaggi e gli altri partecipanti sono simulati e restano solo su questo dispositivo.</div>`;
+const banner = `<div class="demo-banner">Preview: messages and other participants are simulated and stay on this device only.</div>`;
 const extraCss = `
 .demo-banner { position: fixed; left: 50%; transform: translateX(-50%); bottom: 8px; z-index: 30; max-width: calc(100% - 32px);
   background: var(--ink); color: #fff; font-size: 12px; padding: 6px 12px; border-radius: 999px; text-align: center; pointer-events: none; opacity: .92; }

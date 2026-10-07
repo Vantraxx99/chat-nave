@@ -1,6 +1,6 @@
 # 🚢 WeRoad Global Reunion · Cruise Edition
 
-La chat privata, in stile WhatsApp, per i ~2000 partecipanti della Global Reunion in nave.
+L'app è in inglese, per i partecipanti internazionali. La chat privata, in stile WhatsApp, per i ~2000 partecipanti della Global Reunion in nave.
 È un sito web: non c'è nessuna app da installare. Funziona da qualsiasi telefono
 con il browser, anche quando l'unica connessione disponibile è il **singolo URL
 sbloccato** dalla nave.

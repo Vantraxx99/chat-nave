@@ -10,7 +10,7 @@ self.addEventListener('push', (event) => {
   try { data = event.data ? event.data.json() : {}; } catch {}
   const title = data.title || 'Global Reunion';
   event.waitUntil(self.registration.showNotification(title, {
-    body: data.body || 'Nuovo messaggio',
+    body: data.body || 'New message',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
     tag: data.tag || 'chat',

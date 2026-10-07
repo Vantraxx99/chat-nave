@@ -62,7 +62,7 @@
     let data = {};
     try { data = await res.json(); } catch {}
     if (!res.ok) {
-      const err = new Error(data.error || 'Errore di rete');
+      const err = new Error(data.error || 'Network error');
       err.status = res.status;
       throw err;
     }
@@ -99,23 +99,23 @@
   const isJumbo = (t) => t.length <= 12 && /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\u200D|\uFE0F|\s)+$/u.test(t) && (t.match(/\p{Extended_Pictographic}/gu) || []).length <= 3;
   function fmtTime(ts) {
     const d = new Date(ts);
-    return d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
   function fmtListTime(ts) {
     const d = new Date(ts);
     const today = new Date();
     if (d.toDateString() === today.toDateString()) return fmtTime(ts);
     const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-    if (d.toDateString() === yesterday.toDateString()) return 'Ieri';
-    return d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' });
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
   }
   function fmtDay(ts) {
     const d = new Date(ts);
     const today = new Date();
-    if (d.toDateString() === today.toDateString()) return 'Oggi';
+    if (d.toDateString() === today.toDateString()) return 'Today';
     const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-    if (d.toDateString() === yesterday.toDateString()) return 'Ieri';
-    return d.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   }
   const isSystemText = (t) => /^(👋|➕|🚪) /.test(t);
   function show(id) {
@@ -174,7 +174,7 @@
     state.cursor = data.cursor;
     state.convs.clear();
     for (const c of data.conversations) state.convs.set(c.id, c);
-    $('#me-avatar').title = state.me.name + (state.me.isAdmin ? ' (organizzatore)' : '');
+    $('#me-avatar').title = state.me.name + (state.me.isAdmin ? ' (organiser)' : '');
     setAvatar($('#me-avatar'), { type: 'user', title: state.me.name, otherUserId: state.me.id });
     show('app');
     renderConvList();
@@ -350,17 +350,17 @@
   async function enablePush() {
     try {
       const perm = await Notification.requestPermission();
-      if (perm !== 'granted') { toast('Notifiche non autorizzate: puoi attivarle dalle impostazioni del telefono'); return false; }
+      if (perm !== 'granted') { toast('Notifications not allowed: you can turn them on in your phone settings'); return false; }
       const reg = swReg || await navigator.serviceWorker.ready;
       const { publicKey } = await api('GET', '/api/push/key');
       let sub = await reg.pushManager.getSubscription();
       if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToBytes(publicKey) });
       await api('POST', '/api/push/subscribe', { subscription: sub.toJSON() });
-      toast('🔔 Notifiche attivate');
+      toast('🔔 Notifications on');
       refreshPushCard();
       return true;
     } catch (err) {
-      toast('Non è stato possibile attivare le notifiche');
+      toast('Could not turn on notifications');
       return false;
     }
   }
@@ -400,22 +400,22 @@
   };
   const GUIDE = {
     ios: [
-      ['Apri la chat in <b>Safari</b>. Se l\'hai aperta da Instagram, WhatsApp o un\'altra app, scegli prima «Apri in Safari».', null],
-      ['Tocca <b>Condividi</b> nella barra in basso. Se non lo vedi, tocca prima <b>⋯</b>.', 'share'],
-      ['Scorri e tocca <b>«Aggiungi alla schermata Home»</b>.', 'plus'],
-      ['Tocca <b>Aggiungi</b> in alto a destra. Da ora apri la chat dall\'icona <b>Global Reunion</b>.', null],
+      ['Open the chat in <b>Safari</b>. If you opened it from Instagram, WhatsApp or another app, first choose “Open in Safari”.', null],
+      ['Tap <b>Share</b> in the bottom bar. If you can\'t see it, tap <b>⋯</b> first.', 'share'],
+      ['Scroll down and tap <b>“Add to Home Screen”</b>.', 'plus'],
+      ['Tap <b>Add</b> in the top right. From now on, open the chat from the <b>Global Reunion</b> icon.', null],
     ],
     android: [
-      ['Apri la chat in <b>Chrome</b>.', null],
-      ['Tocca il menu <b>⋮</b> in alto a destra.', 'dots'],
-      ['Tocca <b>«Aggiungi a schermata Home»</b> oppure <b>«Installa app»</b>.', 'plus'],
-      ['Conferma con <b>Installa</b>. L\'icona <b>Global Reunion</b> compare tra le tue app.', null],
+      ['Open the chat in <b>Chrome</b>.', null],
+      ['Tap the <b>⋮</b> menu in the top right.', 'dots'],
+      ['Tap <b>“Add to Home screen”</b> or <b>“Install app”</b>.', 'plus'],
+      ['Confirm with <b>Install</b>. The <b>Global Reunion</b> icon appears with your apps.', null],
     ],
   };
 
   function installGuide() {
-    openModal('Mettila sulla Home', (body) => {
-      body.append(el('p', 'muted', 'Così la chat si apre a tutto schermo, come un\'app, e puoi ricevere le notifiche.'));
+    openModal('Add to Home Screen', (body) => {
+      body.append(el('p', 'muted', 'The chat opens full screen like an app, and you can get notifications.'));
       const seg = el('div', 'seg');
       const steps = el('ol', 'steps');
       const tabs = [['ios', '📱 iPhone'], ['android', '🤖 Android']];
@@ -441,12 +441,12 @@
       }
       body.append(seg, steps);
       if (installPrompt) {
-        const quick = el('button', 'btn lime', '📲 Installa con un tocco');
+        const quick = el('button', 'btn lime', '📲 Install in one tap');
         quick.type = 'button';
         quick.addEventListener('click', () => { closeModal(); installApp(); });
         body.append(quick);
       }
-      if (inAppBrowser) body.append(el('p', 'note', '⚠️ Stai usando il browser interno di un\'altra app: aprila in Safari o Chrome per poterla aggiungere alla Home.'));
+      if (inAppBrowser) body.append(el('p', 'note', '⚠️ You are using another app\'s built-in browser: open the chat in Safari or Chrome to add it to your Home Screen.'));
       showTab(isAndroid ? 'android' : 'ios');
     });
   }
@@ -465,14 +465,14 @@
     const text = el('div', 'push-text');
     const close = el('button', 'push-close');
     close.type = 'button';
-    close.setAttribute('aria-label', 'Non ora');
+    close.setAttribute('aria-label', 'Not now');
     close.textContent = '✕';
     const isMobile = isIOS || isAndroid;
     if (!isStandalone && isMobile && !dismissedHome) {
       card.classList.remove('hidden');
       close.addEventListener('click', () => { try { localStorage.setItem('gr-home-card', 'no'); } catch {} refreshPushCard(); });
-      text.append(el('strong', null, '📲 Metti la chat sulla Home'), el('span', null, 'Si apre a tutto schermo come un\'app e ricevi le notifiche.'));
-      const btn = el('button', 'btn lime push-on', installPrompt ? 'Installa' : 'Come fare');
+      text.append(el('strong', null, '📲 Add the chat to your Home Screen'), el('span', null, 'It opens full screen like an app, and you get notifications.'));
+      const btn = el('button', 'btn lime push-on', installPrompt ? 'Install' : 'How to');
       btn.type = 'button';
       btn.addEventListener('click', installApp);
       card.append(text, btn, close);
@@ -483,14 +483,14 @@
     card.classList.remove('hidden');
     close.addEventListener('click', () => { try { localStorage.setItem('gr-push-card', 'no'); } catch {} card.classList.add('hidden'); });
     if (st === 'ios-home') {
-      text.append(el('strong', null, '🔔 Notifiche su iPhone'), el('span', null, 'Funzionano solo aprendo la chat dalla schermata Home.'));
-      const how = el('button', 'btn lime push-on', 'Come fare');
+      text.append(el('strong', null, '🔔 Notifications on iPhone'), el('span', null, 'They only work when you open the chat from your Home Screen.'));
+      const how = el('button', 'btn lime push-on', 'How to');
       how.type = 'button';
       how.addEventListener('click', installGuide);
       card.append(text, how, close);
     } else {
-      text.append(el('strong', null, '🔔 Non perdere i messaggi'), el('span', null, 'Ricevi una notifica anche quando la chat è chiusa.'));
-      const btn = el('button', 'btn lime push-on', 'Attiva');
+      text.append(el('strong', null, '🔔 Don\'t miss a message'), el('span', null, 'Get notified even when the chat is closed.'));
+      const btn = el('button', 'btn lime push-on', 'Turn on');
       btn.type = 'button';
       btn.addEventListener('click', enablePush);
       card.append(text, btn, close);
@@ -498,27 +498,27 @@
   }
 
   function notificationsDialog() {
-    openModal('Notifiche', async (body) => {
+    openModal('Notifications', async (body) => {
       const st = await pushStatus().catch(() => 'unsupported');
       const label = {
-        on: '✅ Notifiche push attive su questo dispositivo',
-        off: 'Notifiche push non attive',
-        denied: 'Notifiche bloccate: riattivale dalle impostazioni del telefono',
-        unsupported: 'Questo browser non supporta le notifiche push',
-        'ios-home': 'Su iPhone le notifiche funzionano solo aggiungendo la chat alla schermata Home',
+        on: '✅ Push notifications are on for this device',
+        off: 'Push notifications are off',
+        denied: 'Notifications are blocked: turn them back on in your phone settings',
+        unsupported: 'This browser does not support push notifications',
+        'ios-home': 'On iPhone, notifications only work after adding the chat to your Home Screen',
       }[st];
       body.append(el('p', null, label));
-      if (st === 'off') body.append(menuButton('🔔  Attiva le notifiche push', async () => { if (await enablePush()) closeModal(); }, 'primary'));
-      if (st === 'on') body.append(menuButton('🔕  Disattiva su questo dispositivo', async () => { await disablePush(); toast('Notifiche disattivate'); closeModal(); refreshPushCard(); }));
+      if (st === 'off') body.append(menuButton('🔔  Turn on push notifications', async () => { if (await enablePush()) closeModal(); }, 'primary'));
+      if (st === 'on') body.append(menuButton('🔕  Turn off on this device', async () => { await disablePush(); toast('Notifications off'); closeModal(); refreshPushCard(); }));
       const soundBtn = menuButton('', () => { prefs.sound = !prefs.sound; savePrefs(); paint(); if (prefs.sound) { unlockAudio(); playTone('message'); } });
       const vibBtn = menuButton('', () => { prefs.vibrate = !prefs.vibrate; savePrefs(); paint(); if (prefs.vibrate && navigator.vibrate) navigator.vibrate(80); });
       const paint = () => {
-        soundBtn.textContent = (prefs.sound ? '🔊  Suono: attivo' : '🔇  Suono: disattivato');
-        vibBtn.textContent = (prefs.vibrate ? '📳  Vibrazione: attiva' : '📴  Vibrazione: disattivata');
+        soundBtn.textContent = (prefs.sound ? '🔊  Sound: on' : '🔇  Sound: off');
+        vibBtn.textContent = (prefs.vibrate ? '📳  Vibration: on' : '📴  Vibration: off');
       };
       paint();
-      body.append(el('div', 'section-label', 'Con la chat aperta'), soundBtn, vibBtn);
-      if (!navigator.vibrate) body.append(el('p', 'muted', 'La vibrazione non è disponibile su iPhone dal browser.'));
+      body.append(el('div', 'section-label', 'While the chat is open'), soundBtn, vibBtn);
+      if (!navigator.vibrate) body.append(el('p', 'muted', 'Vibration is not available on iPhone in the browser.'));
     });
   }
 
@@ -566,18 +566,18 @@
       const info = el('div', 'info');
       const r1 = el('div', 'row');
       const name = el('span', 'name', plainTitle(c));
-      if (c.type === 'announce') name.append(el('span', 'tag', 'Ufficiale'));
+      if (c.type === 'announce') name.append(el('span', 'tag', 'Official'));
       r1.append(name, el('span', 'time', c.lastMessage ? fmtListTime(c.lastMessage.createdAt) : ''));
       const r2 = el('div', 'row');
       let preview = '';
       if (c.lastMessage) {
         const lm = c.lastMessage;
-        const who = lm.userId === state.me.id ? 'Tu: ' : c.type !== 'dm' && !isSystemText(lm.text) ? lm.userName.split(' ')[0] + ': ' : '';
-        preview = lm.deleted ? '🚫 Messaggio eliminato' : who + lm.text.replace(/\n/g, ' ');
+        const who = lm.userId === state.me.id ? 'You: ' : c.type !== 'dm' && !isSystemText(lm.text) ? lm.userName.split(' ')[0] + ': ' : '';
+        preview = lm.deleted ? '🚫 Message deleted' : who + lm.text.replace(/\n/g, ' ');
       }
       r2.append(el('span', 'preview', preview));
       if (c.unread) r2.append(el('span', 'badge', c.unread > 99 ? '99+' : String(c.unread)));
-      else if (c.type === 'announce' || c.type === 'public') { const pin = el('span', 'pin'); pin.innerHTML = ICON_PIN; pin.title = 'In evidenza'; r2.append(pin); }
+      else if (c.type === 'announce' || c.type === 'public') { const pin = el('span', 'pin'); pin.innerHTML = ICON_PIN; pin.title = 'Pinned'; r2.append(pin); }
       info.append(r1, r2);
       li.append(av, info);
       li.addEventListener('click', () => openConv(c.id));
@@ -586,11 +586,11 @@
     if (!shown) {
       const empty = el('li', 'list-empty');
       empty.append(el('span', 'big', tab === 'unread' ? '🎉' : '🌊'), document.createTextNode(
-        filter ? 'Nessuna chat con questo nome' : tab === 'unread' ? 'Tutto letto, sei in pari!' : tab === 'dm' ? 'Nessuna chat privata. Premi «Nuova chat» per scrivere a qualcuno.' : 'Ancora niente qui'));
+        filter ? 'No chats with this name' : tab === 'unread' ? 'All caught up!' : tab === 'dm' ? 'No private chats yet. Tap “New chat” to message someone.' : 'Nothing here yet'));
       ul.append(empty);
     }
     const unreadTab = document.querySelector('#tabs [data-tab="unread"]');
-    unreadTab.textContent = 'Non lette';
+    unreadTab.textContent = 'Unread';
     if (totalUnread) unreadTab.append(el('span', 'n', totalUnread > 99 ? '99+' : String(totalUnread)));
     document.title = (totalUnread ? `(${totalUnread}) ` : '') + 'Global Reunion · Cruise Edition';
     try {
@@ -622,7 +622,7 @@
     const box = $('#messages');
     box.textContent = '';
     if (!state.messages.has(id)) {
-      box.append(el('div', 'day', 'Caricamento…'));
+      box.append(el('div', 'day', 'Loading…'));
       try {
         const data = await api('GET', `/api/conversations/${id}/messages`);
         const store = new Map();
@@ -666,7 +666,7 @@
     if (!conv) return;
     $('#chat-title').textContent = plainTitle(conv);
     setAvatar($('#chat-avatar'), conv);
-    const sub = { public: 'Canale aperto a tutti i partecipanti', announce: 'Comunicazioni degli organizzatori', group: 'Gruppo · tocca per i dettagli', dm: 'Chat privata' };
+    const sub = { public: 'Channel open to all participants', announce: 'Official updates from the organisers', group: 'Group · tap for details', dm: 'Private chat' };
     $('#chat-subtitle').textContent = sub[conv.type] || '';
   }
 
@@ -695,7 +695,7 @@
     const prevTop = box.scrollTop;
     box.textContent = '';
     if (state.hasMore.get(id)) {
-      const b = el('button', 'load-more', 'Carica messaggi precedenti');
+      const b = el('button', 'load-more', 'Load earlier messages');
       b.addEventListener('click', loadOlder);
       box.append(b);
     }
@@ -710,8 +710,8 @@
   function helloCard() {
     const conv = state.convs.get(state.current);
     const card = el('div', 'chat-hello');
-    card.append(el('span', 'big', conv && conv.type === 'dm' ? '👋' : '🌊'), el('strong', null, 'Rompi il ghiaccio'),
-      el('span', null, conv && conv.type === 'dm' ? `Scrivi il primo messaggio a ${conv.title.split(' ')[0]}` : 'Scrivi il primo messaggio della chat'));
+    card.append(el('span', 'big', conv && conv.type === 'dm' ? '👋' : '🌊'), el('strong', null, 'Break the ice'),
+      el('span', null, conv && conv.type === 'dm' ? `Send the first message to ${conv.title.split(' ')[0]}` : 'Send the first message in this chat'));
     return card;
   }
 
@@ -773,15 +773,15 @@
       a.addEventListener('click', (e) => { e.stopPropagation(); userMenu(m.userId, m.userName); });
       div.append(a);
     }
-    div.append(el('span', 'text' + (!m.deleted && isJumbo(m.text) ? ' jumbo' : ''), m.deleted ? '🚫 Messaggio eliminato' : m.text));
+    div.append(el('span', 'text' + (!m.deleted && isJumbo(m.text) ? ' jumbo' : ''), m.deleted ? '🚫 Message deleted' : m.text));
     div.append(el('span', 'meta', fmtTime(m.createdAt)));
     if (!m.deleted && (mine || state.me.isAdmin)) {
       const del = el('button', 'msg-del');
       del.innerHTML = ICON_TRASH;
-      del.title = 'Elimina';
+      del.title = 'Delete';
       del.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (!await askConfirm('Eliminare questo messaggio per tutti?', 'Elimina')) return;
+        if (!await askConfirm('Delete this message for everyone?', 'Delete')) return;
         try { await api('DELETE', `/api/messages/${m.id}`); } catch (err) { toast(err.message); }
       });
       div.append(del);
@@ -873,12 +873,12 @@
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 
   // Conferma dentro la pagina (al posto di confirm(), che non sempre è disponibile).
-  function askConfirm(question, okLabel = 'Conferma') {
+  function askConfirm(question, okLabel = 'Confirm') {
     return new Promise((resolve) => {
-      openModal('Sei sicuro?', (body) => {
+      openModal('Are you sure?', (body) => {
         body.append(el('p', null, question));
         const row = el('div', 'confirm-row');
-        const no = el('button', 'btn secondary', 'Annulla');
+        const no = el('button', 'btn secondary', 'Cancel');
         const yes = el('button', 'btn danger', okLabel);
         no.type = yes.type = 'button';
         const answer = (value) => { modalOnClose = null; closeModal(); resolve(value); };
@@ -903,9 +903,9 @@
   function userPicker(body, { multi = false, onPick, exclude = new Set() }) {
     const search = el('input');
     search.type = 'search';
-    search.placeholder = 'Cerca per nome tra i partecipanti';
+    search.placeholder = 'Search participants by name';
     const ul = el('ul', 'list');
-    ul.dataset.empty = 'Scrivi un nome per cercare';
+    ul.dataset.empty = 'Type a name to search';
     const selected = new Map();
     const chips = el('div', 'chips');
     let timer = null;
@@ -915,7 +915,7 @@
       try {
         const { users } = await api('GET', '/api/users?q=' + encodeURIComponent(term));
         ul.textContent = '';
-        ul.dataset.empty = 'Nessun partecipante trovato';
+        ul.dataset.empty = 'No participants found';
         for (const u of users) {
           if (exclude.has(u.id)) continue;
           const li = el('li');
@@ -958,23 +958,23 @@
 
   $('#fab-new').addEventListener('click', () => $('#btn-new').click());
   $('#btn-new').addEventListener('click', () => {
-    openModal('Nuova chat', (body) => {
-      body.append(menuButton('👥  Crea un gruppo', newGroup, 'primary'));
-      if (state.me.isAdmin) body.append(menuButton('📣  Nuovo canale pubblico (organizzatori)', newChannel));
-      body.append(el('div', 'section-label', 'Scrivi in privato a…'));
+    openModal('New chat', (body) => {
+      body.append(menuButton('👥  Create a group', newGroup, 'primary'));
+      if (state.me.isAdmin) body.append(menuButton('📣  New public channel (organisers)', newChannel));
+      body.append(el('div', 'section-label', 'Message privately…'));
       userPicker(body, { onPick: (u) => startDm(u.id) });
     });
   });
 
   function newGroup() {
-    openModal('Nuovo gruppo', (body) => {
+    openModal('New group', (body) => {
       const name = el('input');
       name.type = 'text';
-      name.placeholder = 'Nome del gruppo (es. Cabina 512, Gita Mykonos…)';
+      name.placeholder = 'Group name (e.g. Cabin 512, Mykonos trip…)';
       name.maxLength = 60;
       body.append(name);
       const picker = userPicker(body, { multi: true });
-      const create = el('button', 'btn', 'Crea gruppo');
+      const create = el('button', 'btn', 'Create group');
       create.addEventListener('click', async () => {
         try {
           const { id } = await api('POST', '/api/groups', { name: name.value, memberIds: [...picker.selected.keys()] });
@@ -989,17 +989,17 @@
   }
 
   function newChannel() {
-    openModal('Nuovo canale', (body) => {
-      body.append(el('p', 'muted', 'I canali sono visibili a tutti i partecipanti.'));
+    openModal('New channel', (body) => {
+      body.append(el('p', 'muted', 'Channels are visible to all participants.'));
       const name = el('input');
       name.type = 'text';
-      name.placeholder = 'Es. 🎶 Festa sul ponte';
+      name.placeholder = 'E.g. 🎶 Deck party';
       name.maxLength = 60;
       const lbl = el('label');
       const chk = el('input');
       chk.type = 'checkbox';
-      lbl.append(chk, document.createTextNode(' Solo gli organizzatori possono scrivere'));
-      const create = el('button', 'btn', 'Crea canale');
+      lbl.append(chk, document.createTextNode(' Only organisers can post'));
+      const create = el('button', 'btn', 'Create channel');
       create.addEventListener('click', async () => {
         try {
           const { id } = await api('POST', '/api/admin/channels', { name: name.value, announce: chk.checked });
@@ -1015,11 +1015,11 @@
   function userMenu(userId, userName) {
     if (userId === state.me.id) return;
     openModal(userName, (body) => {
-      body.append(menuButton('💬  Scrivi in privato', () => startDm(userId)));
+      body.append(menuButton('💬  Send a private message', () => startDm(userId)));
       if (state.me.isAdmin) {
-        body.append(menuButton('⛔  Sospendi utente (organizzatori)', async () => {
-          if (!await askConfirm(`Sospendere ${userName}? Non potrà più accedere alla chat.`, 'Sospendi')) return;
-          try { await api('POST', '/api/admin/ban', { userId }); toast('Utente sospeso'); closeModal(); }
+        body.append(menuButton('⛔  Suspend user (organisers)', async () => {
+          if (!await askConfirm(`Suspend ${userName}? They will no longer be able to use the chat.`, 'Suspend')) return;
+          try { await api('POST', '/api/admin/ban', { userId }); toast('User suspended'); closeModal(); }
           catch (err) { toast(err.message); }
         }, 'danger'));
       }
@@ -1034,20 +1034,20 @@
     let info;
     try { info = await api('GET', `/api/conversations/${conv.id}`); } catch (err) { return toast(err.message); }
     openModal(conv.title, (body) => {
-      body.append(el('p', 'muted', `${info.members.length} partecipanti`));
+      body.append(el('p', 'muted', `${info.members.length} participants`));
       const ul = el('ul', 'list');
       for (const u of info.members) {
         const li = el('li');
         const av = el('span', 'avatar');
         setAvatar(av, { type: 'user', title: u.name, otherUserId: u.id });
-        li.append(av, el('div', 'info name', u.name + (u.id === state.me.id ? ' (tu)' : '')));
+        li.append(av, el('div', 'info name', u.name + (u.id === state.me.id ? ' (you)' : '')));
         if (u.id !== state.me.id) li.addEventListener('click', () => userMenu(u.id, u.name));
         ul.append(li);
       }
       body.append(ul);
-      body.append(menuButton('➕  Aggiungi persone', () => addMembers(conv, new Set(info.members.map((u) => u.id)))));
-      body.append(menuButton('🚪  Esci dal gruppo', async () => {
-        if (!await askConfirm('Uscire dal gruppo?', 'Esci')) return;
+      body.append(menuButton('➕  Add people', () => addMembers(conv, new Set(info.members.map((u) => u.id)))));
+      body.append(menuButton('🚪  Leave group', async () => {
+        if (!await askConfirm('Leave this group?', 'Leave')) return;
         try {
           await api('POST', `/api/conversations/${conv.id}/leave`);
           closeModal();
@@ -1060,9 +1060,9 @@
   });
 
   function addMembers(conv, exclude) {
-    openModal('Aggiungi a ' + conv.title, (body) => {
+    openModal('Add to ' + conv.title, (body) => {
       const picker = userPicker(body, { multi: true, exclude });
-      const btn = el('button', 'btn', 'Aggiungi');
+      const btn = el('button', 'btn', 'Add');
       btn.addEventListener('click', async () => {
         try {
           await api('POST', `/api/conversations/${conv.id}/members`, { userIds: [...picker.selected.keys()] });
@@ -1075,18 +1075,18 @@
 
   // Per chi è iscritto all'evento con un'email diversa da quella che vuole usare.
   function allowEmailDialog() {
-    openModal('Abilita un\'email', (body) => {
-      body.append(el('p', 'muted', 'Possono registrarsi solo le email dei partecipanti. Se qualcuno ha prenotato con un altro indirizzo, abilita qui quello che vuole usare.'));
+    openModal('Allow an email', (body) => {
+      body.append(el('p', 'muted', 'Only participants\' emails can sign up. If someone booked with a different address, allow the one they want to use here.'));
       const input = el('input');
       input.type = 'text';
       input.inputMode = 'email';
       input.placeholder = 'nome@email.com';
-      const btn = el('button', 'btn', 'Abilita');
+      const btn = el('button', 'btn', 'Allow');
       btn.type = 'button';
       btn.addEventListener('click', async () => {
         try {
           const r = await api('POST', '/api/admin/allow', { email: input.value });
-          toast(r.already ? 'Questa email poteva già registrarsi' : 'Email abilitata: ora può registrarsi');
+          toast(r.already ? 'This email could already sign up' : 'Email allowed: they can now sign up');
           closeModal();
         } catch (err) { toast(err.message); }
       });
@@ -1097,20 +1097,20 @@
 
   $('#btn-menu').addEventListener('click', () => {
     openModal('Menu', (body) => {
-      body.append(el('p', 'muted', 'Sei connesso come ' + state.me.name + (state.me.isAdmin ? ' ⭐ organizzatore' : '')));
+      body.append(el('p', 'muted', 'Signed in as ' + state.me.name + (state.me.isAdmin ? ' ⭐ organiser' : '')));
       if (state.me.isAdmin) {
-        body.append(menuButton('✉️  Abilita un\'email (organizzatori)', allowEmailDialog));
-        body.append(menuButton('📊  Statistiche', async () => {
+        body.append(menuButton('✉️  Allow an email (organisers)', allowEmailDialog));
+        body.append(menuButton('📊  Stats', async () => {
           try {
             const s = await api('GET', '/api/admin/stats');
-            toast(`${s.online} online · ${s.users} iscritti · ${s.messages} messaggi`);
+            toast(`${s.online} online · ${s.users} members · ${s.messages} messages`);
           } catch (err) { toast(err.message); }
         }));
       }
-      body.append(menuButton('🔔  Notifiche, suono e vibrazione', notificationsDialog));
-      body.append(menuButton('📲  Metti la chat sulla Home', installGuide));
-      body.append(menuButton('🚪  Esci', async () => {
-        if (!await askConfirm('Uscire? Per rientrare userai di nuovo nome, cognome ed email.', 'Esci')) return;
+      body.append(menuButton('🔔  Notifications, sound & vibration', notificationsDialog));
+      body.append(menuButton('📲  Add to Home Screen', installGuide));
+      body.append(menuButton('🚪  Sign out', async () => {
+        if (!await askConfirm('Sign out? To sign back in, just use your name, surname and email again.', 'Sign out')) return;
         await disablePush();
         try { await api('POST', '/api/logout'); } catch {}
         location.reload();
