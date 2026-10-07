@@ -590,6 +590,7 @@
     } catch (err) { toast(err.message); }
   }
 
+  $('#fab-new').addEventListener('click', () => $('#btn-new').click());
   $('#btn-new').addEventListener('click', () => {
     openModal('Nuova chat', (body) => {
       body.append(menuButton('👥  Nuovo gruppo', newGroup));
