@@ -5,10 +5,23 @@ const path = require('node:path');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { db } = require('./db');
-const { generateCode, normalizeCode } = require('./codes');
+const { normalizeEmail, isValidEmail, cleanName, surnameMatches } = require('./identity');
 
 const PORT = Number(process.env.PORT) || 3000;
+const normalizeCode = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+// Codice evento facoltativo, richiesto solo a chi si registra per la prima volta.
 const JOIN_CODE = process.env.JOIN_CODE ? normalizeCode(process.env.JOIN_CODE) : null;
+// Con SOLO_ISCRITTI=1 possono entrare solo le email importate dalla lista partecipanti.
+const LIST_ONLY = process.env.SOLO_ISCRITTI === '1';
+// Email degli organizzatori: diventano admin quando entrano.
+// Arrivano dal file organizzatori.txt (una per riga) e dalla variabile ADMIN_EMAILS (separate da virgola).
+function loadAdminEmails() {
+  let fromFile = '';
+  try { fromFile = fs.readFileSync(path.join(__dirname, '..', 'organizzatori.txt'), 'utf8'); } catch {}
+  const lines = fromFile.split('\n').filter((l) => !l.trim().startsWith('#'));
+  return new Set([...lines, ...String(process.env.ADMIN_EMAILS || '').split(',')].map(normalizeEmail).filter(Boolean));
+}
+const ADMIN_EMAILS = loadAdminEmails();
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const POLL_TIMEOUT_MS = 25_000; // sotto i 30s tipici dei proxy
 const MAX_TEXT = 1000;
@@ -23,14 +36,15 @@ const SECURE_COOKIE = process.env.SECURE_COOKIE !== '0';
 let seq = db.prepare(`SELECT COALESCE(MAX(seq), 0) AS s FROM messages`).get().s;
 
 const q = {
-  userByCode: db.prepare(`SELECT * FROM users WHERE code = ?`),
+  userByEmail: db.prepare(`SELECT * FROM users WHERE email = ?`),
   userById: db.prepare(`SELECT id, name, is_admin, banned FROM users WHERE id = ?`),
-  insertUser: db.prepare(`INSERT INTO users (name, code, created_at) VALUES (?, ?, ?)`),
+  insertUser: db.prepare(`INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)`),
   sessionUser: db.prepare(`SELECT u.id, u.name, u.is_admin, u.banned FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`),
   insertSession: db.prepare(`INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)`),
   deleteSession: db.prepare(`DELETE FROM sessions WHERE token = ?`),
   deleteUserSessions: db.prepare(`DELETE FROM sessions WHERE user_id = ?`),
   setBanned: db.prepare(`UPDATE users SET banned = ? WHERE id = ?`),
+  makeAdmin: db.prepare(`UPDATE users SET is_admin = 1 WHERE id = ?`),
   searchUsers: db.prepare(`SELECT id, name FROM users WHERE banned = 0 AND id != ? AND name LIKE ? ESCAPE '\\' ORDER BY name LIMIT 30`),
   conv: db.prepare(`SELECT * FROM conversations WHERE id = ?`),
   isMember: db.prepare(`SELECT 1 FROM members WHERE conversation_id = ? AND user_id = ?`),
@@ -252,10 +266,6 @@ function clientIp(req) {
   return String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress;
 }
 
-function cleanName(name) {
-  return String(name || '').replace(/\s+/g, ' ').trim().slice(0, 60);
-}
-
 function startSession(userId) {
   const token = crypto.randomBytes(32).toString('base64url');
   q.insertSession.run(token, userId, Date.now());
@@ -298,28 +308,35 @@ function route(method, pattern, handler) {
   routes.push({ method, re, handler });
 }
 
-route('GET', '/api/config', async () => ({ joinEnabled: !!JOIN_CODE }));
+route('GET', '/api/config', async () => ({ joinCodeRequired: !!JOIN_CODE }));
 
-route('POST', '/api/login', async (req, res) => {
+// Accesso e registrazione insieme: nome, cognome ed email.
+// - email nuova      -> crea l'utente (se la registrazione è aperta)
+// - email già nota   -> rientra, purché il cognome corrisponda
+route('POST', '/api/register', async (req) => {
   checkLoginAllowed(req);
   const body = await readJson(req);
-  const user = q.userByCode.get(normalizeCode(body.code));
-  if (!user) throw loginFailed(req, 401, 'Codice non valido');
+  const firstName = cleanName(body.firstName);
+  const lastName = cleanName(body.lastName);
+  const email = normalizeEmail(body.email);
+  if (!firstName || !lastName) throw new HttpError(400, 'Inserisci nome e cognome');
+  if (!isValidEmail(email)) throw new HttpError(400, 'Email non valida');
+
+  let user = q.userByEmail.get(email);
+  if (user) {
+    if (!surnameMatches(user.name, lastName)) {
+      throw loginFailed(req, 401, 'Questa email è registrata con un altro cognome');
+    }
+  } else {
+    if (LIST_ONLY) throw loginFailed(req, 403, "Email non presente nella lista dei partecipanti: usa quella con cui ti sei iscritto all'evento");
+    if (JOIN_CODE && normalizeCode(body.joinCode) !== JOIN_CODE) throw loginFailed(req, 401, 'Codice evento non valido');
+    const name = cleanName(`${firstName} ${lastName}`);
+    const { lastInsertRowid } = q.insertUser.run(name, email, Date.now());
+    user = q.userById.get(lastInsertRowid);
+  }
   if (user.banned) throw new HttpError(403, 'Account sospeso');
+  if (ADMIN_EMAILS.has(email) && !user.is_admin) q.makeAdmin.run(user.id);
   return { status: 200, body: { ok: true }, headers: { 'Set-Cookie': startSession(user.id) } };
-});
-
-route('POST', '/api/join', async (req, res) => {
-  if (!JOIN_CODE) throw new HttpError(404, 'Registrazione libera non attiva');
-  checkLoginAllowed(req);
-  const body = await readJson(req);
-  if (normalizeCode(body.joinCode) !== JOIN_CODE) throw loginFailed(req, 401, 'Codice evento non valido');
-  const name = cleanName(body.name);
-  if (name.length < 2) throw new HttpError(400, 'Inserisci nome e cognome');
-  let code;
-  do { code = generateCode(); } while (q.userByCode.get(code));
-  const { lastInsertRowid } = q.insertUser.run(name, code, Date.now());
-  return { status: 200, body: { ok: true, code }, headers: { 'Set-Cookie': startSession(lastInsertRowid) } };
 });
 
 route('POST', '/api/logout', async (req) => {
@@ -588,7 +605,8 @@ server.requestTimeout = 0;
 if (require.main === module) {
   server.listen(PORT, () => {
     console.log(`Chat nave in ascolto su http://localhost:${PORT}`);
-    if (JOIN_CODE) console.log('Registrazione libera con codice evento ATTIVA');
+    if (LIST_ONLY) console.log('Accesso riservato alle email della lista partecipanti');
+    if (JOIN_CODE) console.log('Codice evento richiesto ai nuovi iscritti');
   });
 }
 

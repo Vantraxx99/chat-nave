@@ -7,7 +7,7 @@ const path = require('node:path');
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-nave-'));
 process.env.SECURE_COOKIE = '0';
-process.env.JOIN_CODE = 'CROCIERA';
+process.env.ADMIN_EMAILS = 'Carla@WeRoad.test';
 
 const { db } = require('../src/db');
 const { server } = require('../src/server');
@@ -30,21 +30,22 @@ function client() {
   };
 }
 
-function addUser(name, code, admin = 0) {
-  db.prepare(`INSERT INTO users (name, code, is_admin, created_at) VALUES (?, ?, ?, ?)`).run(name, code, admin, Date.now());
-}
+const reg = (firstName, lastName, email) => ({ firstName, lastName, email });
 
 test('flusso completo: login, canali, DM, gruppi, polling, moderazione', async () => {
-  addUser('Anna Bianchi', 'ANNA22');
-  addUser('Bruno Verdi', 'BRUNO2');
-  addUser('Carla Staff', 'STAFF9', 1);
   const anna = client(), bruno = client(), carla = client(), estraneo = client();
 
-  assert.equal((await anna('POST', '/api/login', { code: 'wrong' })).status, 401);
-  assert.equal((await anna('POST', '/api/login', { code: 'anna22' })).status, 200);
-  await bruno('POST', '/api/login', { code: 'BRUNO2' });
-  await carla('POST', '/api/login', { code: 'STAFF9' });
+  assert.equal((await anna('POST', '/api/register', reg('Anna', '', 'anna@x.it'))).status, 400);
+  assert.equal((await anna('POST', '/api/register', reg('Anna', 'Bianchi', 'non-una-email'))).status, 400);
+  assert.equal((await anna('POST', '/api/register', reg('Anna', 'Bianchi', 'anna@x.it'))).status, 200);
+  await bruno('POST', '/api/register', reg('Bruno', 'Verdi', 'bruno@x.it'));
+  await carla('POST', '/api/register', reg('Carla', 'Staff', 'carla@weroad.test'));
   assert.equal((await estraneo('GET', '/api/me')).status, 401);
+  // Qualcuno prova a entrare con l'email di Anna ma un altro cognome
+  assert.equal((await estraneo('POST', '/api/register', reg('Finta', 'Anna', 'anna@x.it'))).status, 401);
+  // Rientro da un altro dispositivo: maiuscole, accenti e spazi non contano
+  assert.equal((await client()('POST', '/api/register', reg('anna', ' BIANCHÌ ', ' Anna@X.it'))).status, 200);
+  assert.equal((await carla('GET', '/api/me')).body.user.isAdmin, true);
 
   const me = (await anna('GET', '/api/me')).body;
   assert.equal(me.user.name, 'Anna Bianchi');
@@ -105,25 +106,24 @@ test('flusso completo: login, canali, DM, gruppi, polling, moderazione', async (
   // Sospensione
   assert.equal((await carla('POST', '/api/admin/ban', { userId: found[0].id })).status, 200);
   assert.equal((await bruno('GET', '/api/me')).status, 401);
-  assert.equal((await bruno('POST', '/api/login', { code: 'BRUNO2' })).status, 403);
+  assert.equal((await bruno('POST', '/api/register', reg('Bruno', 'Verdi', 'bruno@x.it'))).status, 403);
 });
 
-test('registrazione con codice evento', async () => {
-  const nuovo = client();
-  assert.equal((await nuovo('POST', '/api/join', { name: 'Dario', joinCode: 'sbagliato' })).status, 401);
-  const r = await nuovo('POST', '/api/join', { name: 'Dario Neri', joinCode: 'crociera' });
-  assert.equal(r.status, 200);
-  assert.match(r.body.code, /^[A-Z0-9]{6}$/);
-  assert.equal((await nuovo('GET', '/api/me')).body.user.name, 'Dario Neri');
+test('lista partecipanti e codice evento', async () => {
+  const { surnameMatches } = require('../src/identity');
+  assert.ok(surnameMatches('Anna Maria De Luca', 'de luca'));
+  assert.ok(!surnameMatches('Anna Maria De Luca', 'luc'));
+  assert.ok(!surnameMatches('Anna Maria De Luca', 'anna'));
+  assert.ok(surnameMatches("Lucia D'Amico", 'd amico'));
 });
 
 test('protezioni di base', async () => {
   const c = client();
-  await c('POST', '/api/login', { code: 'ANNA22' });
+  await c('POST', '/api/register', reg('Anna', 'Bianchi', 'anna@x.it'));
   const general = (await c('GET', '/api/me')).body.conversations.find((x) => x.type === 'public');
   assert.equal((await c('POST', `/api/conversations/${general.id}/messages`, { text: 'a'.repeat(1001) })).status, 400);
   // Richieste non-JSON rifiutate (CSRF da form)
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'code=ANNA22' });
+  const res = await fetch(`${base}/api/register`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'email=anna@x.it' });
   assert.equal(res.status, 415);
   // Path traversal sui file statici
   const tr = await fetch(`${base}/..%2Fsrc%2Fserver.js`);

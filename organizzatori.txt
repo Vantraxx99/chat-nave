@@ -1,0 +1,5 @@
+# Email degli organizzatori (una per riga). Diventano admin appena entrano in chat.
+# Filippo Roca
+roca.filippo1999@gmail.com
+# Sandro Drovandi
+sandro.drovandi@scuolazoo.it

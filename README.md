@@ -1,19 +1,19 @@
-# ⚓ Chat di bordo
+# 🚢 Global Reunion · Cruise Edition
 
-Una chat privata in stile WhatsApp per i ~2000 partecipanti di un evento in nave.
+La chat privata, in stile WhatsApp, per i ~2000 partecipanti della Global Reunion in nave.
 È un sito web: non c'è nessuna app da installare. Funziona da qualsiasi telefono
 con il browser, anche quando l'unica connessione disponibile è il **singolo URL
 sbloccato** dalla nave.
 
 ## Cosa fa
 
-- **Accesso solo per gli iscritti**: ognuno entra con un codice personale di 6 caratteri.
+- **Registrazione semplice**: nome, cognome ed email. La prima volta ci si registra, le volte dopo si rientra con la stessa email e lo stesso cognome.
 - **📢 Annunci**: canale in cui scrivono solo gli organizzatori e che tutti leggono.
 - **🚢 Tutti a bordo**: canale aperto a tutti.
-- **Chat private 1 a 1**: si cerca una persona per nome tra i partecipanti.
+- **Chat private 1 a 1**: si cerca una persona per nome tra i partecipanti. Le email non sono mai visibili agli altri.
 - **Gruppi**: per esempio "Cabina 512" o "Gita Mykonos". Si possono aggiungere persone e uscire dal gruppo.
 - Messaggi non letti, separatori per giorno e il conteggio nel titolo della scheda.
-- Funziona in tema chiaro e scuro, su telefono e su computer, e si può aggiungere alla schermata Home.
+- Colori in stile WeRoad, tema chiaro e scuro, telefono e computer. Si può aggiungere alla schermata Home.
 - **Moderazione**: gli organizzatori possono cancellare messaggi, sospendere utenti e creare nuovi canali.
 
 ## Perché è fatto così (connessione della nave)
@@ -23,21 +23,32 @@ sbloccato** dalla nave.
 | La nave sblocca solo gli URL richiesti | **Tutto** è servito dallo stesso dominio: niente CDN, Google Fonts o analytics. Basta far sbloccare un solo dominio (es. `chat.tuoevento.it`). |
 | I proxy delle navi spesso bloccano i WebSocket | Il tempo reale usa il **long-polling HTTP** su HTTPS standard: richieste da massimo 25 secondi, sotto i timeout tipici dei proxy. |
 | La banda satellitare è poca e condivisa da 2000 persone | Solo testo ed emoji (niente foto né video), risposte compresse con gzip. La pagina intera pesa circa 12 KB. |
-| Tutti escono dallo stesso IP della nave | I limiti anti-abuso contano solo i codici sbagliati, non gli accessi corretti. |
+| Tutti escono dallo stesso IP della nave | I limiti anti-abuso contano solo i tentativi sbagliati, non gli accessi corretti. |
 
 Prova di carico fatta: **2000 utenti collegati insieme**, 30 messaggi nel canale
 generale, **60.000 consegne su 60.000**, latenza mediana circa 0,2 s, circa 170 MB di RAM.
 
-## Requisiti
+## Chi può entrare
 
-- Node.js **22.13 o più recente**. Non ci sono dipendenze npm: il database è SQLite, già incluso in Node.
+Di default chiunque abbia il link può registrarsi con nome, cognome ed email.
+Per limitare l'accesso ci sono due opzioni, combinabili:
 
-## Preparazione
+- **Solo la lista partecipanti** (consigliato per l'evento): importate il CSV degli
+  iscritti e avviate con `SOLO_ISCRITTI=1`. Entra solo chi usa l'email con cui si è
+  iscritto al viaggio.
+- **Codice evento**: con `JOIN_CODE=CROCIERA2026` chi si registra per la prima
+  volta deve inserire anche il codice evento, comunicato per esempio su un cartello a bordo.
 
-### 1. Importa i partecipanti
+Per rientrare bastano email e cognome. È comodo, ma vuol dire che chi conosce
+email e cognome di qualcun altro potrebbe entrare al suo posto. Per una chat
+tra partecipanti di un evento è un compromesso ragionevole. Non usatela per
+informazioni riservate.
 
-Parti da un CSV, esportato per esempio dal gestionale WeRoad, con almeno la colonna `nome`
-(oppure `nome` e `cognome`). Le colonne `email` e `admin` sono facoltative: con `admin = si` la persona diventa organizzatore.
+### Importare la lista partecipanti
+
+CSV con le colonne `email` e `nome` (oppure `nome` e `cognome`). La colonna
+`admin` è facoltativa: con `si` la persona diventa organizzatore. Il separatore
+può essere `;` o `,`.
 
 ```csv
 nome;cognome;email;admin
@@ -46,58 +57,67 @@ Carla;Rossi;carla@weroad.it;si
 ```
 
 ```bash
-npm run import -- partecipanti.csv codici.csv
+npm run import -- partecipanti.csv
 ```
 
-Lo script genera `codici.csv` con il codice personale di ognuno. Si può rilanciare
-più volte: chi è già stato importato mantiene il suo codice.
+Si può rilanciare quando la lista cambia: chi c'è già non viene duplicato. Il nome
+mostrato in chat è quello della lista.
 
-**Manda il codice a ogni partecipante prima della partenza**, per email o sul
-badge. A bordo non avranno internet per riceverlo.
+### Organizzatori
 
-### 2. In alternativa: registrazione libera
-
-Se non avete la lista dei partecipanti, avviate il server con un codice evento:
-
-```bash
-JOIN_CODE=CROCIERA2026 npm start
-```
-
-Chi conosce il codice evento si registra con nome e cognome e riceve il suo codice
-personale. Potete comunicare il codice evento a bordo, per esempio su un cartello.
-Le due modalità possono convivere.
-
-### 3. Comandi utili
+Le email nel file `organizzatori.txt` (una per riga) diventano organizzatori
+appena entrano in chat. Oggi ci sono Filippo Roca e Sandro Drovandi. Si possono
+aggiungere altre email anche con la variabile `ADMIN_EMAILS` (separate da
+virgola), con la colonna `admin` del CSV oppure con i comandi:
 
 ```bash
-npm run admin -- add "Mario Rossi" --admin   # crea un utente (anche organizzatore)
-npm run admin -- find rossi                  # ritrova il codice di qualcuno
-npm run admin -- promote K7PQ2M              # rende organizzatore
+npm run admin -- add "Mario Rossi" mario@email.it --admin
+npm run admin -- promote mario@email.it
+npm run admin -- unban mario@email.it
+npm run admin -- find rossi
 npm run admin -- stats
 ```
+
+## Provarla subito
+
+- **Anteprima statica**: `node scripts/build-demo.js` genera `demo/anteprima.html`, un file
+  unico che funziona senza server. Gli altri partecipanti e i messaggi sono simulati.
+- **In locale**: `npm run dev`, poi apri http://localhost:3000. Requisito: Node.js **22.13 o più recente**.
+  Non ci sono dipendenze npm: il database è SQLite, già incluso in Node.
 
 ## Messa online
 
 Il server va pubblicato su internet **con HTTPS**, su un dominio vostro. Poi si
-chiede alla nave di sbloccare **quel dominio**.
+chiede alla nave di sbloccare **quel dominio**. Deve girare **un'unica istanza**,
+perché i messaggi in tempo reale passano dalla memoria del processo. Per 2000
+persone basta una macchina piccola: 1 vCPU e 1 GB di RAM.
 
-**Con Docker, su una VPS** (Hetzner, DigitalOcean, Aruba…). L'HTTPS si mette davanti, per esempio con Caddy:
+### Render (il più semplice, per le prove)
+
+1. Create un account su [render.com](https://render.com) e collegate GitHub.
+2. **New → Blueprint**, scegliete questo repository e il branch. Render legge `render.yaml`.
+3. Alla richiesta di `ADMIN_EMAILS` potete lasciare vuoto: gli organizzatori sono già in `organizzatori.txt`.
+4. Dopo un paio di minuti avete un indirizzo `https://global-reunion-chat-xxxx.onrender.com`.
+
+Limiti del piano **free**:
+- Se il sito resta inutilizzato per 15 minuti, si addormenta e la prima apertura successiva impiega circa un minuto.
+- **I messaggi si cancellano a ogni riavvio.**
+
+Per l'evento passate a un piano a pagamento (Starter) e aggiungete un **Disk**
+montato su `/opt/render/project/src/data`. Collegate anche il vostro dominio dalle
+impostazioni del servizio.
+
+### Docker su una VPS
+
+Funziona su Hetzner, DigitalOcean, Aruba e simili. L'HTTPS si mette davanti, per esempio con Caddy.
 
 ```bash
 docker build -t chat-nave .
 docker run -d --restart=always -p 3000:3000 -v chat-data:/app/data \
-  -e JOIN_CODE=CROCIERA2026 chat-nave
-# import dei partecipanti dentro il container:
+  -e SOLO_ISCRITTI=1 -e ADMIN_EMAILS=tu@weroad.it chat-nave
 docker cp partecipanti.csv <container>:/app/
-docker exec <container> node scripts/import.js partecipanti.csv codici.csv
-docker cp <container>:/app/codici.csv .
+docker exec <container> node scripts/import.js partecipanti.csv
 ```
-
-**Su Render, Railway o Fly.io**: è un normale servizio Node (`npm start`). Serve un
-**disco persistente** montato su `DATA_DIR`, altrimenti i messaggi si perdono a ogni riavvio.
-
-Per 2000 persone basta una macchina piccola (1 vCPU, 1 GB di RAM). Deve restare
-**un'unica istanza**: i messaggi in tempo reale passano dalla memoria del processo.
 
 ### Variabili d'ambiente
 
@@ -105,7 +125,9 @@ Per 2000 persone basta una macchina piccola (1 vCPU, 1 GB di RAM). Deve restare
 |---|---|---|
 | `PORT` | `3000` | Porta HTTP |
 | `DATA_DIR` | `./data` | Cartella del database `chat.db` (fatene un backup!) |
-| `JOIN_CODE` | non impostata | Attiva la registrazione libera con questo codice evento |
+| `SOLO_ISCRITTI` | non impostata | Con `1` entrano solo le email importate dalla lista |
+| `JOIN_CODE` | non impostata | Codice evento richiesto ai nuovi iscritti |
+| `ADMIN_EMAILS` | non impostata | Altri organizzatori oltre a `organizzatori.txt`, separati da virgola |
 | `SECURE_COOKIE` | `1` | Mettere `0` solo per le prove in locale senza HTTPS |
 
 ### Prima di partire: checklist
@@ -116,7 +138,7 @@ Per 2000 persone basta una macchina piccola (1 vCPU, 1 GB di RAM). Deve restare
    aperte richieste fino a 25 secondi. Se le chiudono prima, la chat funziona lo
    stesso, ma con qualche secondo di ritardo.
 3. Se possibile, provate il sito dalla rete della nave o da una connessione lenta.
-4. Mandate i codici personali e il link a tutti **prima dell'imbarco**.
+4. Mandate il link a tutti prima dell'imbarco. Possono anche registrarsi da casa.
 
 ### Alternativa senza internet
 
@@ -136,5 +158,7 @@ Struttura:
 
 - `src/server.js`: API HTTP, long-polling e file statici
 - `src/db.js`: schema SQLite
+- `src/identity.js`: email, nomi e controllo del cognome
 - `public/`: interfaccia web in JS puro, senza framework né build
-- `scripts/`: import dei partecipanti e comandi di amministrazione
+- `scripts/`: import dei partecipanti, comandi di amministrazione, anteprima
+- `demo/demo.js`: server simulato usato solo dall'anteprima

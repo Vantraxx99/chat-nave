@@ -16,8 +16,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id         INTEGER PRIMARY KEY,
     name       TEXT NOT NULL,
-    email      TEXT,
-    code       TEXT NOT NULL UNIQUE,
+    email      TEXT NOT NULL UNIQUE,  -- sempre minuscola
+    imported   INTEGER NOT NULL DEFAULT 0,  -- 1 = presente nella lista partecipanti
     is_admin   INTEGER NOT NULL DEFAULT 0,
     banned     INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL

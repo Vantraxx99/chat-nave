@@ -20,7 +20,11 @@
   };
 
   // ------------------------------------------------------------------ API
+  // In anteprima (demo.js) le chiamate vanno a un server simulato nel browser.
+  const demo = window.DEMO_SERVER || null;
+
   async function api(method, url, body) {
+    if (demo) return demo.request(method, url, body);
     const opts = { method, headers: {}, credentials: 'same-origin' };
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
@@ -89,30 +93,38 @@
     show('login');
     try {
       const cfg = await api('GET', '/api/config');
-      $('#join-box').classList.toggle('hidden', !cfg.joinEnabled);
+      $('#join-code-field').classList.toggle('hidden', !cfg.joinCodeRequired);
+      $('#join-code').required = !!cfg.joinCodeRequired;
     } catch {}
-    $('#code').focus();
+    try {
+      const saved = JSON.parse(localStorage.getItem('gr-login') || 'null');
+      if (saved) {
+        $('#first-name').value = saved.firstName || '';
+        $('#last-name').value = saved.lastName || '';
+        $('#email').value = saved.email || '';
+      }
+    } catch {}
+    if (!$('#first-name').value) $('#first-name').focus();
   }
 
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     $('#login-error').textContent = '';
+    const btn = e.target.querySelector('button');
+    const data = {
+      firstName: $('#first-name').value,
+      lastName: $('#last-name').value,
+      email: $('#email').value,
+      joinCode: $('#join-code').value,
+    };
+    btn.disabled = true;
     try {
-      await api('POST', '/api/login', { code: $('#code').value });
+      await api('POST', '/api/register', data);
+      try { localStorage.setItem('gr-login', JSON.stringify({ firstName: data.firstName, lastName: data.lastName, email: data.email })); } catch {}
       start();
     } catch (err) { $('#login-error').textContent = err.message; }
+    finally { btn.disabled = false; }
   });
-
-  $('#join-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    $('#login-error').textContent = '';
-    try {
-      const r = await api('POST', '/api/join', { name: $('#join-name').value, joinCode: $('#join-code').value });
-      $('#welcome-code').textContent = r.code;
-      show('welcome');
-    } catch (err) { $('#login-error').textContent = err.message; }
-  });
-  $('#welcome-continue').addEventListener('click', () => start());
 
   // ---------------------------------------------------------------- Avvio
   async function start() {
@@ -128,7 +140,7 @@
     state.cursor = data.cursor;
     state.convs.clear();
     for (const c of data.conversations) state.convs.set(c.id, c);
-    $('#me-name').textContent = state.me.name + (state.me.isAdmin ? ' ⭐' : '');
+    $('#me-avatar').title = state.me.name + (state.me.isAdmin ? ' (organizzatore)' : '');
     setAvatar($('#me-avatar'), { type: 'user', title: state.me.name, otherUserId: state.me.id });
     show('app');
     renderConvList();
@@ -162,7 +174,7 @@
     while (state.me) {
       try {
         state.pollCtrl = new AbortController();
-        const data = await fetch('/api/poll?since=' + state.cursor, { signal: state.pollCtrl.signal, credentials: 'same-origin' })
+        const data = demo ? await demo.poll(state.cursor) : await fetch('/api/poll?since=' + state.cursor, { signal: state.pollCtrl.signal, credentials: 'same-origin' })
           .then(async (r) => {
             if (r.status === 401 || r.status === 403) { const e = new Error('auth'); e.status = r.status; throw e; }
             if (!r.ok) throw new Error('http ' + r.status);
@@ -246,7 +258,7 @@
       li.addEventListener('click', () => openConv(c.id));
       ul.append(li);
     }
-    document.title = totalUnread ? `(${totalUnread}) Chat di bordo` : 'Chat di bordo';
+    document.title = (totalUnread ? `(${totalUnread}) ` : '') + 'Global Reunion · Cruise Edition';
   }
   $('#conv-filter').addEventListener('input', renderConvList);
 
@@ -256,8 +268,10 @@
     if (!conv) return;
     state.current = id;
     // Su mobile il tasto "indietro" del telefono deve tornare alla lista, non uscire dal sito.
-    if (history.state && history.state.chat) history.replaceState({ chat: true }, '', '#' + id);
-    else history.pushState({ chat: true }, '', '#' + id);
+    try {
+      if (history.state && history.state.chat) history.replaceState({ chat: true }, '', '#' + id);
+      else history.pushState({ chat: true }, '', '#' + id);
+    } catch {}
     document.body.classList.add('in-chat');
     $('#chat-empty').classList.add('hidden');
     $('#chat-view').classList.remove('hidden');
@@ -402,7 +416,7 @@
       del.title = 'Elimina';
       del.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (!confirm('Eliminare questo messaggio per tutti?')) return;
+        if (!await askConfirm('Eliminare questo messaggio per tutti?', 'Elimina')) return;
         try { await api('DELETE', `/api/messages/${m.id}`); } catch (err) { toast(err.message); }
       });
       div.append(del);
@@ -468,16 +482,43 @@
 
   // ------------------------------------------------------------ Modale
   function openModal(title, build) {
+    modalOnClose = null;
     $('#modal-title').textContent = title;
     const body = $('#modal-body');
     body.textContent = '';
     build(body);
     $('#modal').classList.remove('hidden');
   }
-  function closeModal() { $('#modal').classList.add('hidden'); }
+  let modalOnClose = null;
+  function closeModal() {
+    $('#modal').classList.add('hidden');
+    const cb = modalOnClose;
+    modalOnClose = null;
+    if (cb) cb();
+  }
   $('#modal-close').addEventListener('click', closeModal);
   $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+  // Conferma dentro la pagina (al posto di confirm(), che non sempre è disponibile).
+  function askConfirm(question, okLabel = 'Conferma') {
+    return new Promise((resolve) => {
+      openModal('Sei sicuro?', (body) => {
+        body.append(el('p', null, question));
+        const row = el('div', 'confirm-row');
+        const no = el('button', 'btn secondary', 'Annulla');
+        const yes = el('button', 'btn danger', okLabel);
+        no.type = yes.type = 'button';
+        const answer = (value) => { modalOnClose = null; closeModal(); resolve(value); };
+        no.addEventListener('click', () => answer(false));
+        yes.addEventListener('click', () => answer(true));
+        row.append(no, yes);
+        body.append(row);
+        setTimeout(() => yes.focus(), 30);
+      });
+      modalOnClose = () => resolve(false);
+    });
+  }
 
   function menuButton(label, onClick, cls) {
     const b = el('button', 'menu-btn' + (cls ? ' ' + cls : ''), label);
@@ -602,7 +643,7 @@
       body.append(menuButton('💬  Scrivi in privato', () => startDm(userId)));
       if (state.me.isAdmin) {
         body.append(menuButton('⛔  Sospendi utente (organizzatori)', async () => {
-          if (!confirm(`Sospendere ${userName}? Non potrà più accedere alla chat.`)) return;
+          if (!await askConfirm(`Sospendere ${userName}? Non potrà più accedere alla chat.`, 'Sospendi')) return;
           try { await api('POST', '/api/admin/ban', { userId }); toast('Utente sospeso'); closeModal(); }
           catch (err) { toast(err.message); }
         }, 'danger'));
@@ -631,7 +672,7 @@
       body.append(ul);
       body.append(menuButton('➕  Aggiungi persone', () => addMembers(conv, new Set(info.members.map((u) => u.id)))));
       body.append(menuButton('🚪  Esci dal gruppo', async () => {
-        if (!confirm('Uscire dal gruppo?')) return;
+        if (!await askConfirm('Uscire dal gruppo?', 'Esci')) return;
         try {
           await api('POST', `/api/conversations/${conv.id}/leave`);
           closeModal();
@@ -659,6 +700,7 @@
 
   $('#btn-menu').addEventListener('click', () => {
     openModal('Menu', (body) => {
+      body.append(el('p', 'muted', 'Sei connesso come ' + state.me.name + (state.me.isAdmin ? ' ⭐ organizzatore' : '')));
       if (state.me.isAdmin) {
         body.append(menuButton('📊  Statistiche', async () => {
           try {
@@ -668,7 +710,7 @@
         }));
       }
       body.append(menuButton('🚪  Esci', async () => {
-        if (!confirm('Uscire? Per rientrare ti servirà il tuo codice personale.')) return;
+        if (!await askConfirm('Uscire? Per rientrare userai di nuovo nome, cognome ed email.', 'Esci')) return;
         try { await api('POST', '/api/logout'); } catch {}
         location.reload();
       }, 'danger'));

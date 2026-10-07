@@ -1,4 +1,4 @@
 node_modules/
 data/
-codici.csv
 *.db
+demo/anteprima.html

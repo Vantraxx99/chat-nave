@@ -3,48 +3,46 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-  <meta name="theme-color" content="#0b6e6e">
-  <title>Chat di bordo</title>
+  <meta name="theme-color" content="#FF4758">
+  <title>Global Reunion · Cruise Edition</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <!-- Accesso -->
+  <!-- Accesso / registrazione -->
   <section id="login" class="screen hidden">
-    <div class="login-card">
-      <div class="logo">⚓</div>
-      <h1>Chat di bordo</h1>
-      <p class="muted">La chat privata dei partecipanti all'evento.</p>
-
-      <form id="login-form" autocomplete="off">
-        <label for="code">Il tuo codice personale</label>
-        <input id="code" name="code" inputmode="text" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="ES. K7PQ2M" required>
-        <button type="submit">Entra</button>
-      </form>
-
-      <div id="join-box" class="hidden">
-        <p class="divider"><span>oppure, prima volta?</span></p>
-        <form id="join-form" autocomplete="off">
-          <label for="join-name">Nome e cognome</label>
-          <input id="join-name" maxlength="60" required>
-          <label for="join-code">Codice evento</label>
-          <input id="join-code" autocapitalize="characters" spellcheck="false" maxlength="20" required>
-          <button type="submit" class="secondary">Registrati</button>
+    <div class="login-wrap">
+      <div class="brand">
+        <div class="brand-title">Global Reunion</div>
+        <div class="brand-pill">🚢 Cruise Edition</div>
+        <p class="brand-sub">La chat riservata ai partecipanti</p>
+      </div>
+      <div class="login-card">
+        <form id="login-form">
+          <div class="field-row">
+            <div class="field">
+              <label for="first-name">Nome</label>
+              <input id="first-name" autocomplete="given-name" maxlength="40" required>
+            </div>
+            <div class="field">
+              <label for="last-name">Cognome</label>
+              <input id="last-name" autocomplete="family-name" maxlength="40" required>
+            </div>
+          </div>
+          <div class="field">
+            <label for="email">Email</label>
+            <input id="email" type="email" autocomplete="email" inputmode="email" maxlength="120" placeholder="la stessa dell'iscrizione al viaggio" required>
+          </div>
+          <div id="join-code-field" class="field hidden">
+            <label for="join-code">Codice evento</label>
+            <input id="join-code" autocapitalize="characters" spellcheck="false" maxlength="20">
+          </div>
+          <button type="submit">Entra in chat</button>
+          <p id="login-error" class="error" role="alert"></p>
+          <p class="hint">Prima volta? Ti registri automaticamente. Per rientrare da un altro telefono usa la stessa email e lo stesso cognome.</p>
         </form>
       </div>
-      <p id="login-error" class="error" role="alert"></p>
-    </div>
-  </section>
-
-  <!-- Codice appena creato -->
-  <section id="welcome" class="screen hidden">
-    <div class="login-card">
-      <div class="logo">🎉</div>
-      <h1>Benvenuto a bordo!</h1>
-      <p>Questo è il tuo codice personale. <strong>Salvalo</strong> (fai uno screenshot): ti servirà per rientrare da un altro dispositivo.</p>
-      <p id="welcome-code" class="big-code"></p>
-      <button id="welcome-continue">Ho salvato il codice, continua</button>
     </div>
   </section>
 
@@ -52,11 +50,9 @@
   <section id="app" class="screen hidden">
     <aside id="sidebar">
       <header class="bar">
-        <div class="me">
-          <span id="me-avatar" class="avatar"></span>
-          <span id="me-name"></span>
-        </div>
+        <div class="bar-brand">Global Reunion<small>🚢 Cruise Edition</small></div>
         <div class="bar-actions">
+          <span id="me-avatar" class="avatar"></span>
           <button id="btn-new" class="icon" title="Nuova chat" aria-label="Nuova chat">✎</button>
           <button id="btn-menu" class="icon" title="Menu" aria-label="Menu">⋮</button>
         </div>
@@ -68,7 +64,8 @@
 
     <main id="chat">
       <div id="chat-empty" class="chat-empty">
-        <div class="logo">🚢</div>
+        <div class="brand-title dark">Global Reunion</div>
+        <div class="brand-pill">🚢 Cruise Edition</div>
         <p>Scegli una chat o iniziane una nuova con ✎</p>
       </div>
       <div id="chat-view" class="hidden">

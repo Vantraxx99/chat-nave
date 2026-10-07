@@ -1,21 +1,24 @@
 #!/usr/bin/env node
 'use strict';
-// Importa i partecipanti da un CSV e genera un codice personale per ciascuno.
+// Importa la lista dei partecipanti da un CSV.
 //
-//   node scripts/import.js partecipanti.csv [codici.csv]
+//   node scripts/import.js partecipanti.csv
 //
-// Il CSV deve avere una colonna "nome" (oppure "nome" + "cognome").
-// Colonne opzionali: "email" (copiata nell'output), "admin" (1/si/true = organizzatore).
-// Separatore ";" o "," rilevato automaticamente. Le persone già importate
-// (stesso nome + email) vengono saltate, quindi lo script si può rilanciare.
+// Colonne obbligatorie: "email" e "nome" (oppure "nome" + "cognome").
+// Colonna facoltativa: "admin" (1/si/true = organizzatore).
+// Separatore ";" o "," rilevato automaticamente. Lo script si può rilanciare:
+// chi ha già quell'email viene aggiornato (segnato come in lista, admin se indicato).
+//
+// I partecipanti entrano poi sul sito con nome, cognome ed email.
+// Con SOLO_ISCRITTI=1 solo le email importate possono entrare.
 
 const fs = require('node:fs');
 const { db } = require('../src/db');
-const { generateCode } = require('../src/codes');
+const { normalizeEmail, isValidEmail, cleanName } = require('../src/identity');
 
-const [input, output = 'codici.csv'] = process.argv.slice(2);
+const [input] = process.argv.slice(2);
 if (!input) {
-  console.error('Uso: node scripts/import.js partecipanti.csv [codici.csv]');
+  console.error('Uso: node scripts/import.js partecipanti.csv');
   process.exit(1);
 }
 
@@ -49,35 +52,28 @@ const iNome = col('nome', 'name', 'first name', 'nome completo', 'full name');
 const iCognome = col('cognome', 'surname', 'last name');
 const iEmail = col('email', 'e-mail', 'mail');
 const iAdmin = col('admin', 'organizzatore', 'staff');
-if (iNome < 0) {
-  console.error('Il CSV deve avere una colonna "nome". Colonne trovate: ' + header.join(', '));
+if (iNome < 0 || iEmail < 0) {
+  console.error('Il CSV deve avere le colonne "nome" ed "email". Colonne trovate: ' + header.join(', '));
   process.exit(1);
 }
 
-const exists = db.prepare(`SELECT code FROM users WHERE name = ? AND COALESCE(email, '') = ?`);
-const codeTaken = db.prepare(`SELECT 1 FROM users WHERE code = ?`);
-const insert = db.prepare(`INSERT INTO users (name, email, code, is_admin, created_at) VALUES (?, ?, ?, ?, ?)`);
+const find = db.prepare(`SELECT id FROM users WHERE email = ?`);
+const insert = db.prepare(`INSERT INTO users (name, email, imported, is_admin, created_at) VALUES (?, ?, 1, ?, ?)`);
+const update = db.prepare(`UPDATE users SET imported = 1, is_admin = MAX(is_admin, ?) WHERE id = ?`);
 
-const out = [['nome', 'email', 'codice', 'admin']];
-let created = 0, skipped = 0;
+let created = 0, updated = 0;
+const invalid = [];
 db.exec('BEGIN');
-for (const r of rows) {
-  const name = [r[iNome], iCognome >= 0 ? r[iCognome] : ''].map((s) => (s || '').trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ').slice(0, 60);
-  if (!name) continue;
-  const email = iEmail >= 0 ? (r[iEmail] || '').trim().toLowerCase() : '';
+rows.forEach((r, i) => {
+  const name = cleanName([r[iNome], iCognome >= 0 ? r[iCognome] : ''].map((s) => (s || '').trim()).join(' '));
+  const email = normalizeEmail(r[iEmail]);
+  if (!name || !isValidEmail(email)) { invalid.push(i + 2); return; }
   const admin = iAdmin >= 0 && /^(1|si|sì|yes|true|x)$/i.test((r[iAdmin] || '').trim()) ? 1 : 0;
-  const prev = exists.get(name, email);
-  let code;
-  if (prev) { code = prev.code; skipped++; }
-  else {
-    do { code = generateCode(); } while (codeTaken.get(code));
-    insert.run(name, email || null, code, admin, Date.now());
-    created++;
-  }
-  out.push([name, email, code, admin ? 'si' : '']);
-}
+  const prev = find.get(email);
+  if (prev) { update.run(admin, prev.id); updated++; }
+  else { insert.run(name, email, admin, Date.now()); created++; }
+});
 db.exec('COMMIT');
 
-const csvField = (f) => (/[";,\n]/.test(f) ? '"' + f.replace(/"/g, '""') + '"' : f);
-fs.writeFileSync(output, '﻿' + out.map((r) => r.map(csvField).join(';')).join('\n') + '\n');
-console.log(`Creati ${created} partecipanti, ${skipped} già presenti. Codici scritti in ${output}`);
+console.log(`Importati ${created} nuovi partecipanti, ${updated} già presenti.`);
+if (invalid.length) console.log(`Righe saltate (nome o email mancanti/non validi): ${invalid.join(', ')}`);

@@ -1,0 +1,18 @@
+# Deploy su Render (https://render.com): New → Blueprint → scegli questo repository.
+# Il piano free va bene per le prove; per l'evento usate un piano a pagamento con disco
+# persistente (vedi README), altrimenti i messaggi si perdono a ogni riavvio.
+services:
+  - type: web
+    name: global-reunion-chat
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: NODE_ENV
+        value: production
+      - key: ADMIN_EMAILS
+        sync: false
