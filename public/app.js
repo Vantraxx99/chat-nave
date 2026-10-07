@@ -765,6 +765,8 @@
       info.append(r1, r2);
       li.append(av, info);
       li.addEventListener('click', () => (c.virtual === 'new' ? contactStaff() : c.virtual === 'inbox' ? selectTab('support') : openConv(c.id)));
+      // Appena il dito tocca la chat iniziamo a scaricarne i messaggi (si guadagna ~100-300 ms).
+      if (!c.virtual) li.addEventListener('pointerdown', () => { loadMessages(c.id).catch(() => {}); }, { passive: true });
       ul.append(li);
     }
     if (!shown) {
@@ -809,25 +811,20 @@
     $('#composer').classList.toggle('hidden', !canWrite);
     $('#readonly-note').classList.toggle('hidden', canWrite);
     conv.unread = 0;
-    renderConvList();
+    // Su telefono la lista è sotto la chat che entra: la aggiorniamo a animazione finita.
+    if (isPhone()) setTimeout(renderConvList, 320); else renderConvList();
 
     const box = $('#messages');
     box.textContent = '';
     if (!state.messages.has(id)) {
-      box.append(el('div', 'day', 'Loading…'));
+      // "Loading…" solo se il caricamento dura: di solito i messaggi arrivano durante l'animazione.
+      const slow = setTimeout(() => { if (state.current === id && !box.firstChild) box.append(el('div', 'day', 'Loading…')); }, 350);
       try {
-        const data = await api('GET', `/api/conversations/${id}/messages`);
-        const store = new Map();
-        for (const m of data.messages) store.set(m.id, m);
-        // Messaggi arrivati via polling durante il caricamento
-        const existing = state.messages.get(id);
-        if (existing) for (const [k, v] of existing) store.set(k, v);
-        state.messages.set(id, store);
-        state.hasMore.set(id, data.hasMore);
+        await loadMessages(id);
       } catch (err) {
         if (state.current === id) { box.textContent = ''; box.append(el('div', 'day', err.message)); }
         return;
-      }
+      } finally { clearTimeout(slow); }
       if (state.current !== id) return;
     }
     renderAllMessages(true);
@@ -838,12 +835,36 @@
     if (window.matchMedia('(min-width: 761px)').matches) $('#msg-input').focus();
   }
 
+  const isPhone = () => window.matchMedia('(max-width: 760px)').matches;
+  // Carica i messaggi di una chat una volta sola (anche se richiesti due volte insieme).
+  const loading = new Map();
+  function loadMessages(id) {
+    if (state.messages.has(id)) return Promise.resolve();
+    if (!loading.has(id)) {
+      loading.set(id, api('GET', `/api/conversations/${id}/messages`).then((data) => {
+        const store = new Map();
+        for (const m of data.messages) store.set(m.id, m);
+        // Messaggi arrivati via polling durante il caricamento
+        const existing = state.messages.get(id);
+        if (existing) for (const [k, v] of existing) store.set(k, v);
+        state.messages.set(id, store);
+        state.hasMore.set(id, data.hasMore);
+      }).finally(() => loading.delete(id)));
+    }
+    return loading.get(id);
+  }
+
   function closeConv() {
     state.current = null;
     document.body.classList.remove('in-chat');
-    $('#chat-view').classList.add('hidden');
-    $('#chat-empty').classList.remove('hidden');
     renderConvList();
+    // Su telefono la chat esce scorrendo: la svuotiamo solo dopo l'animazione.
+    const hide = () => {
+      if (state.current) return;
+      $('#chat-view').classList.add('hidden');
+      $('#chat-empty').classList.remove('hidden');
+    };
+    if (isPhone()) setTimeout(hide, 320); else hide();
   }
   function goBack() {
     if (history.state && history.state.chat) history.back(); else closeConv();
