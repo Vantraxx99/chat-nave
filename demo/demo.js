@@ -2,6 +2,33 @@
 // Server simulato nel browser, usato SOLO per l'anteprima statica.
 // Imita le API di src/server.js e popola la chat con partecipanti finti.
 (() => {
+// Come src/server.js: reazioni disponibili e pulizia dei campi del profilo.
+window.DEMO_REACTIONS = ['❤️', '😂', '👍', '🔥', '😮', '😢', '🎉'];
+window.DEMO_CLEAN_PROFILE = (input, err) => {
+  const handle = (re, label) => (v) => {
+    const h = String(v || '').trim().replace(/^https?:\/\/(www\.)?[^/]+\/(in\/)?/i, '').replace(/^@/, '').replace(/[/?#].*$/, '');
+    if (h && !re.test(h)) throw err(400, `${label} doesn't look right`);
+    return h;
+  };
+  const text = (max) => (v) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, max);
+  const fields = {
+    instagram: handle(/^[A-Za-z0-9._]{1,30}$/, 'Instagram username'),
+    tiktok: handle(/^[A-Za-z0-9._]{2,24}$/, 'TikTok username'),
+    linkedin: handle(/^[A-Za-z0-9\-_%]{3,100}$/, 'LinkedIn profile'),
+    whatsapp: (v) => {
+      const raw = String(v || '').trim();
+      if (!raw) return '';
+      const n = (raw.startsWith('+') || raw.startsWith('00') ? '+' : '') + raw.replace(/^00/, '').replace(/\D/g, '');
+      if (!/^\+?\d{6,16}$/.test(n)) throw err(400, 'WhatsApp number doesn\'t look right');
+      return n;
+    },
+    city: text(40),
+    bio: text(160),
+  };
+  const out = {};
+  for (const [k, f] of Object.entries(fields)) { const v = f(input[k]); if (v) out[k] = v; }
+  return out;
+};
 function createDemoServer() {
   const NAMES = [
     'Giulia Romano', 'Luca Ferri', 'Sara Conti', 'Marco Galli', 'Chiara Costa', 'Davide Greco',
@@ -25,6 +52,8 @@ function createDemoServer() {
   const addUser = (name, extra = {}) => { const u = { id: nextUser++, name, isAdmin: false, banned: false, ...extra }; users.set(u.id, u); return u; };
   const staff = addUser('Team Global Reunion', { isAdmin: true });
   const people = NAMES.map((n) => addUser(n));
+  people[0].profile = { city: 'Milan', bio: 'Sunsets, pasta and karaoke 🎤', instagram: 'giulia.romano', tiktok: 'giuliar' };
+  people[1].profile = { city: 'Rome', instagram: 'luca.ferri', linkedin: 'luca-ferri' };
 
   const convs = new Map();
   let nextConv = 1;
@@ -34,6 +63,15 @@ function createDemoServer() {
   const party = addConv('group', '🎶 Deck party', people.slice(0, 12).map((u) => u.id));
 
   const messages = [];
+  const reacts = new Map(); // msgId -> Map(userId -> emoji)
+  const counts = (id) => {
+    const r = reacts.get(id);
+    if (!r || !r.size) return null;
+    const c = {};
+    for (const e of r.values()) c[e] = (c[e] || 0) + 1;
+    return c;
+  };
+  const out = (x) => ({ ...x, reactions: x.deleted ? null : counts(x.id) });
   let nextMsg = 1, seq = 0;
   const reads = new Map(); // `${userId}:${convId}` -> lastReadId
   const waiters = new Set();
@@ -116,7 +154,7 @@ function createDemoServer() {
     if (!me) throw err(401, 'Not signed in');
     if (method === 'POST' && p === '/api/logout') { me = null; return { ok: true }; }
     if (method === 'GET' && p === '/api/me') {
-      return { user: { id: me.id, name: me.name, isAdmin: me.isAdmin }, cursor: seq, conversations: [...convs.values()].filter(visible).map(summary) };
+      return { user: { id: me.id, name: me.name, isAdmin: me.isAdmin, profile: me.profile || {} }, cursor: seq, conversations: [...convs.values()].filter(visible).map(summary) };
     }
     if (method === 'GET' && p === '/api/users') {
       const q = (u.searchParams.get('q') || '').toLowerCase();
@@ -128,7 +166,7 @@ function createDemoServer() {
       if (method === 'GET') {
         const before = Number(u.searchParams.get('before')) || Infinity;
         const list = messages.filter((x) => x.conversationId === c.id && x.id < before).slice(-50);
-        return { messages: list.map((x) => ({ ...x })), hasMore: false };
+        return { messages: list.map((x) => ({ ...out(x), myReaction: (reacts.get(x.id) || new Map()).get(me.id) || null })), hasMore: false };
       }
       if (c.type === 'announce' && !me.isAdmin) throw err(403, 'Only organisers can post here');
       const text = String(body.text || '').trim();
@@ -139,7 +177,7 @@ function createDemoServer() {
       reads.set(`${me.id}:${c.id}`, msg.id);
       if (c.type === 'dm') botReply(c, users.get([...c.members].find((id) => id !== me.id)));
       if (c.type === 'group') botReply(c, users.get([...c.members].find((id) => id !== me.id)) || people[1]);
-      return { message: { ...msg } };
+      return { message: out(msg) };
     }
     if ((m = p.match(/^\/api\/conversations\/(\d+)\/read$/))) {
       const c = getConv(m[1]);
@@ -186,6 +224,35 @@ function createDemoServer() {
       for (const w of [...waiters]) w();
       return { ok: true };
     }
+    if ((m = p.match(/^\/api\/messages\/(\d+)\/react$/)) && method === 'POST') {
+      const msg = messages.find((x) => x.id === Number(m[1]));
+      if (!msg || msg.deleted) throw err(404, 'Message not found');
+      const emoji = body.emoji ? String(body.emoji) : '';
+      if (emoji && !window.DEMO_REACTIONS.includes(emoji)) throw err(400, 'Reaction not available');
+      if (!reacts.has(msg.id)) reacts.set(msg.id, new Map());
+      if (emoji) reacts.get(msg.id).set(me.id, emoji); else reacts.get(msg.id).delete(me.id);
+      msg.seq = ++seq;
+      for (const w of [...waiters]) w();
+      // Qualcuno ricambia la reazione, per far vedere i conteggi che cambiano.
+      if (emoji && Math.random() < 0.6) setTimeout(() => {
+        reacts.get(msg.id).set(people[Math.floor(Math.random() * 12)].id, window.DEMO_REACTIONS[Math.floor(Math.random() * 4)]);
+        msg.seq = ++seq;
+        for (const w of [...waiters]) w();
+      }, 1800);
+      return { message: { ...out(msg), myReaction: emoji || null } };
+    }
+    if ((m = p.match(/^\/api\/messages\/(\d+)\/reactions$/)) && method === 'GET') {
+      return { reactions: [...(reacts.get(Number(m[1])) || new Map())].map(([id, emoji]) => ({ emoji, userId: id, name: users.get(id).name })) };
+    }
+    if (method === 'PUT' && p === '/api/me/profile') {
+      me.profile = window.DEMO_CLEAN_PROFILE(body.profile || {}, err);
+      return { profile: me.profile };
+    }
+    if ((m = p.match(/^\/api\/users\/(\d+)$/)) && method === 'GET') {
+      const t = users.get(Number(m[1]));
+      if (!t) throw err(404, 'User not found');
+      return { id: t.id, name: t.name, isAdmin: t.isAdmin, profile: t.profile || {} };
+    }
     if (method === 'POST' && p === '/api/admin/channels') {
       const name = String(body.name || '').trim();
       if (name.length < 2) throw err(400, 'Channel name too short');
@@ -211,7 +278,7 @@ function createDemoServer() {
         const list = pending();
         if (!list.length) return;
         waiters.delete(done); clearTimeout(timer);
-        setTimeout(() => resolve({ messages: list.map((m) => ({ ...m })), cursor: list[list.length - 1].seq }), 30);
+        setTimeout(() => resolve({ messages: list.map(out), cursor: list[list.length - 1].seq }), 30);
       };
       const timer = setTimeout(() => { waiters.delete(done); resolve({ messages: [], cursor: Math.max(since, seq) }); }, 25000);
       waiters.add(done);

@@ -97,6 +97,25 @@ if (!db.prepare(`PRAGMA table_info(messages)`).all().some((c) => c.name === 'rep
   db.exec(`ALTER TABLE messages ADD COLUMN reply_to INTEGER`);
 }
 
+// Reazioni ai messaggi (una per persona, come su WhatsApp). In messages.reactions teniamo
+// anche il conteggio già pronto ({"❤️":3}), così il polling manda pochi byte.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS reactions (
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji      TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (message_id, user_id)
+  );
+`);
+if (!db.prepare(`PRAGMA table_info(messages)`).all().some((c) => c.name === 'reactions')) {
+  db.exec(`ALTER TABLE messages ADD COLUMN reactions TEXT`);
+}
+// Profilo facoltativo (Instagram, città, due righe su di sé…), visibile agli altri partecipanti.
+if (!db.prepare(`PRAGMA table_info(users)`).all().some((c) => c.name === 'profile')) {
+  db.exec(`ALTER TABLE users ADD COLUMN profile TEXT`);
+}
+
 // Unico canale di default: gli Annunci degli organizzatori. Per il resto i
 // partecipanti si creano i loro gruppi.
 function ensureDefaultChannels() {

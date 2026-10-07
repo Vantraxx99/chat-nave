@@ -43,6 +43,7 @@ let seq = db.prepare(`SELECT COALESCE(MAX(seq), 0) AS s FROM messages`).get().s;
 const q = {
   userByEmail: db.prepare(`SELECT * FROM users WHERE email = ?`),
   userById: db.prepare(`SELECT id, name, is_admin, banned FROM users WHERE id = ?`),
+  userProfile: db.prepare(`SELECT id, name, is_admin, profile FROM users WHERE id = ?`),
   insertUser: db.prepare(`INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)`),
   sessionUser: db.prepare(`SELECT u.id, u.name, u.is_admin, u.banned FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`),
   insertSession: db.prepare(`INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)`),
@@ -76,23 +77,35 @@ const q = {
     ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_by = excluded.updated_by, updated_at = excluded.updated_at`),
   unread: db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND id > ? AND user_id != ? AND deleted = 0`),
   msgById: db.prepare(`
-    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq,
+    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq, m.reactions,
       m.reply_to, r.user_id AS r_user_id, ru.name AS r_user_name, r.text AS r_text, r.deleted AS r_deleted
     FROM messages m JOIN users u ON u.id = m.user_id
     LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.user_id WHERE m.id = ?`),
   history: db.prepare(`
-    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq,
+    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq, m.reactions,
       m.reply_to, r.user_id AS r_user_id, ru.name AS r_user_name, r.text AS r_text, r.deleted AS r_deleted
     FROM messages m JOIN users u ON u.id = m.user_id
     LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.user_id
     WHERE m.conversation_id = ? AND m.id < ? ORDER BY m.id DESC LIMIT ?`),
   insertMsg: db.prepare(`INSERT INTO messages (conversation_id, user_id, text, created_at, seq, reply_to) VALUES (?, ?, ?, ?, ?, ?)`),
-  deleteMsg: db.prepare(`UPDATE messages SET deleted = 1, text = '', seq = ? WHERE id = ?`),
+  deleteMsg: db.prepare(`UPDATE messages SET deleted = 1, text = '', reactions = NULL, seq = ? WHERE id = ?`),
+  setReaction: db.prepare(`
+    INSERT INTO reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(message_id, user_id) DO UPDATE SET emoji = excluded.emoji, created_at = excluded.created_at`),
+  removeReaction: db.prepare(`DELETE FROM reactions WHERE message_id = ? AND user_id = ?`),
+  reactionCounts: db.prepare(`SELECT emoji, COUNT(*) AS n FROM reactions WHERE message_id = ? GROUP BY emoji ORDER BY MIN(created_at)`),
+  saveReactions: db.prepare(`UPDATE messages SET reactions = ?, seq = ? WHERE id = ?`),
+  reactionUsers: db.prepare(`
+    SELECT r.emoji, u.id, u.name FROM reactions r JOIN users u ON u.id = r.user_id
+    WHERE r.message_id = ? ORDER BY r.created_at DESC LIMIT 500`),
+  myReactions: db.prepare(`SELECT message_id, emoji FROM reactions WHERE user_id = ? AND message_id BETWEEN ? AND ?`),
+  myReaction: db.prepare(`SELECT emoji FROM reactions WHERE user_id = ? AND message_id = ?`),
+  setProfile: db.prepare(`UPDATE users SET profile = ? WHERE id = ?`),
   upsertRead: db.prepare(`
     INSERT INTO reads (user_id, conversation_id, last_read_id) VALUES (?, ?, ?)
     ON CONFLICT(user_id, conversation_id) DO UPDATE SET last_read_id = MAX(last_read_id, excluded.last_read_id)`),
   since: db.prepare(`
-    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq,
+    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq, m.reactions,
       m.reply_to, r.user_id AS r_user_id, ru.name AS r_user_name, r.text AS r_text, r.deleted AS r_deleted
     FROM messages m JOIN users u ON u.id = m.user_id
     LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.user_id
@@ -103,7 +116,7 @@ const q = {
            OR (c.type = 'staff' AND ? = 1))
     ORDER BY m.seq LIMIT 300`),
   sincePublic: db.prepare(`
-    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq,
+    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq, m.reactions,
       m.reply_to, r.user_id AS r_user_id, ru.name AS r_user_name, r.text AS r_text, r.deleted AS r_deleted
     FROM messages m JOIN users u ON u.id = m.user_id
     LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.user_id
@@ -117,6 +130,7 @@ function publicMsg(m) {
   return {
     id: m.id, conversationId: m.conversation_id, userId: m.user_id, userName: m.user_name,
     text: m.deleted ? '' : m.text, deleted: !!m.deleted, createdAt: m.created_at, seq: m.seq,
+    reactions: m.reactions && !m.deleted ? JSON.parse(m.reactions) : null,
     replyTo: m.reply_to ? {
       id: m.reply_to, userId: m.r_user_id, userName: m.r_user_name || '',
       text: m.r_deleted ? '' : String(m.r_text || '').slice(0, 160), deleted: !!m.r_deleted,
@@ -449,7 +463,7 @@ route('GET', '/api/me', async (req) => {
   const user = auth(req);
   const conversations = q.visibleConvs.all(user.id, user.id, user.is_admin).map((r) => conversationSummary(r, user));
   return {
-    user: { id: user.id, name: user.name, isAdmin: !!user.is_admin },
+    user: { id: user.id, name: user.name, isAdmin: !!user.is_admin, profile: readProfile(q.userProfile.get(user.id)) },
     cursor: seq,
     conversations,
   };
@@ -460,6 +474,60 @@ route('GET', '/api/users', async (req, res, params, url) => {
   const term = String(url.searchParams.get('q') || '').trim().slice(0, 50);
   const like = '%' + term.replace(/[\\%_]/g, (c) => '\\' + c) + '%';
   return { users: q.searchUsers.all(user.id, like) };
+});
+
+// --- Profili ------------------------------------------------------------------
+// Tutti campi facoltativi; i social si salvano come nome utente, l'app costruisce i link.
+const handle = (re) => (v) => {
+  const h = String(v || '').trim().replace(/^https?:\/\/(www\.)?[^/]+\/(in\/)?/i, '').replace(/^@/, '').replace(/[/?#].*$/, '');
+  if (!h) return '';
+  if (!re.test(h)) throw new HttpError(400, 'invalid');
+  return h;
+};
+const PROFILE_FIELDS = {
+  instagram: { label: 'Instagram username', clean: handle(/^[A-Za-z0-9._]{1,30}$/) },
+  tiktok: { label: 'TikTok username', clean: handle(/^[A-Za-z0-9._]{2,24}$/) },
+  linkedin: { label: 'LinkedIn profile', clean: handle(/^[A-Za-z0-9\-_%]{3,100}$/) },
+  whatsapp: {
+    label: 'WhatsApp number',
+    clean: (v) => {
+      const raw = String(v || '').trim();
+      if (!raw) return '';
+      const n = (raw.startsWith('+') || raw.startsWith('00') ? '+' : '') + raw.replace(/^00/, '').replace(/\D/g, '');
+      if (!/^\+?\d{6,16}$/.test(n)) throw new HttpError(400, 'invalid');
+      return n;
+    },
+  },
+  city: { label: 'City', clean: (v) => cleanText(v, 40) },
+  bio: { label: 'About you', clean: (v) => cleanText(v, 160) },
+};
+function cleanText(v, max) {
+  return String(v || '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+function readProfile(row) {
+  if (!row || !row.profile) return {};
+  try { return JSON.parse(row.profile); } catch { return {}; }
+}
+
+route('PUT', '/api/me/profile', async (req) => {
+  const user = auth(req);
+  const body = await readJson(req);
+  const input = body.profile || {};
+  const profile = {};
+  for (const [key, f] of Object.entries(PROFILE_FIELDS)) {
+    let value;
+    try { value = f.clean(input[key]); } catch { throw new HttpError(400, `${f.label} doesn't look right`); }
+    if (value) profile[key] = value;
+  }
+  q.setProfile.run(Object.keys(profile).length ? JSON.stringify(profile) : null, user.id);
+  return { profile };
+});
+
+route('GET', '/api/users/:id', async (req, res, { id }) => {
+  auth(req);
+  const row = q.userProfile.get(Number(id));
+  if (!row) throw new HttpError(404, 'User not found');
+  return { id: row.id, name: row.name, isAdmin: !!row.is_admin, profile: readProfile(row) };
 });
 
 route('GET', '/api/conversations/:id', async (req, res, { id }) => {
@@ -476,7 +544,12 @@ route('GET', '/api/conversations/:id/messages', async (req, res, { id }, url) =>
   const conv = getConvOr404(id, user);
   const before = Number(url.searchParams.get('before')) || Number.MAX_SAFE_INTEGER;
   const rows = q.history.all(conv.id, before, 50).reverse();
-  return { messages: rows.map(publicMsg), hasMore: rows.length === 50 };
+  const messages = rows.map(publicMsg);
+  if (rows.length) {
+    const mine = new Map(q.myReactions.all(user.id, rows[0].id, rows[rows.length - 1].id).map((r) => [r.message_id, r.emoji]));
+    for (const m of messages) m.myReaction = mine.get(m.id) || null;
+  }
+  return { messages, hasMore: rows.length === 50 };
 });
 
 route('POST', '/api/conversations/:id/messages', async (req, res, { id }) => {
@@ -624,6 +697,37 @@ route('DELETE', '/api/messages/:id', async (req, res, { id }) => {
   q.deleteMsg.run(nextSeq(), msg.id);
   notify(conv);
   return { ok: true };
+});
+
+// --- Reazioni -------------------------------------------------------------------
+const REACTIONS = ['❤️', '😂', '👍', '🔥', '😮', '😢', '🎉'];
+const reactLimit = limiter(20, 10_000);
+
+route('POST', '/api/messages/:id/react', async (req, res, { id }) => {
+  const user = auth(req);
+  const msg = q.msgById.get(Number(id));
+  if (!msg || msg.deleted) throw new HttpError(404, 'Message not found');
+  const conv = getConvOr404(msg.conversation_id, user);
+  if (!reactLimit(user.id)) throw new HttpError(429, 'Slow down a little');
+  const body = await readJson(req);
+  const emoji = body.emoji ? String(body.emoji) : '';
+  if (emoji && !REACTIONS.includes(emoji)) throw new HttpError(400, 'Reaction not available');
+  if (emoji) q.setReaction.run(msg.id, user.id, emoji, Date.now());
+  else q.removeReaction.run(msg.id, user.id);
+  const counts = {};
+  for (const r of q.reactionCounts.all(msg.id)) counts[r.emoji] = r.n;
+  // Il messaggio prende un seq nuovo: il polling lo rimanda a tutti con i conteggi aggiornati.
+  q.saveReactions.run(Object.keys(counts).length ? JSON.stringify(counts) : null, nextSeq(), msg.id);
+  notify(conv);
+  return { message: { ...publicMsg(q.msgById.get(msg.id)), myReaction: emoji || null } };
+});
+
+route('GET', '/api/messages/:id/reactions', async (req, res, { id }) => {
+  const user = auth(req);
+  const msg = q.msgById.get(Number(id));
+  if (!msg) throw new HttpError(404, 'Message not found');
+  getConvOr404(msg.conversation_id, user);
+  return { reactions: q.reactionUsers.all(msg.id).map((r) => ({ emoji: r.emoji, userId: r.id, name: r.name })) };
 });
 
 route('GET', '/api/poll', async (req, res, params, url) => {

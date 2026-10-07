@@ -47,6 +47,7 @@
     const convs = new Map();   // num -> { n, type, name, members[], dmKey }
     const msgs = new Map();    // num -> messaggio nel formato dell'API
     const bans = new Set();
+    const reacts = new Map();  // `${msg}_${user}` -> { m, u, e, at }
     const waiters = new Set();
     let seq = 0;
     let loggedOut = false;
@@ -63,9 +64,17 @@
       return {
         id: d.n, conversationId: d.c, userId: d.u, userName: d.name || (u && u.name) || 'Partecipante',
         text: d.del ? '' : d.t, deleted: !!d.del, createdAt: d.at, seq: s,
-        replyTo: d.rt ? { ...d.rt } : null,
+        replyTo: d.rt ? { ...d.rt } : null, reactions: d.del ? null : reactionCounts(d.n),
       };
     }
+    function reactionCounts(msgN) {
+      const list = [...reacts.values()].filter((r) => r.m === msgN).sort((a, b) => a.at - b.at);
+      if (!list.length) return null;
+      const counts = {};
+      for (const r of list) counts[r.e] = (counts[r.e] || 0) + 1;
+      return counts;
+    }
+    const myReaction = (msgN) => { const r = reacts.get(`${msgN}_${me().n}`); return r ? r.e : null; };
 
     // Prima consegna di ogni collezione = dati pronti.
     const firstLoad = [];
@@ -80,7 +89,7 @@
     }
     watch(db.collection('users'), (type, d, id) => {
       if (type === 'removed' || !d) return;
-      users.set(d.n, { n: d.n, uid: id, name: d.name, email: d.email, isAdmin: !!d.isAdmin });
+      users.set(d.n, { n: d.n, uid: id, name: d.name, email: d.email, isAdmin: !!d.isAdmin, profile: d.profile || {} });
     });
     watch(db.collection('convs'), (type, d) => {
       if (!d) return;
@@ -94,6 +103,11 @@
       if (!d) return;
       if (type === 'removed') return; // uscito dalla finestra degli ultimi 1000: lo teniamo in memoria
       msgs.set(d.n, toMsg(d, ++seq));
+    });
+    watch(db.collection('reacts'), (type, d, id) => {
+      if (type === 'removed') reacts.delete(id); else if (d) reacts.set(id, d);
+      const m = d ? msgs.get(d.m) : msgs.get(Number(String(id).split('_')[0]));
+      if (m) msgs.set(m.id, { ...m, reactions: m.deleted ? null : reactionCounts(m.id), seq: ++seq });
     });
     await Promise.race([
       Promise.all(firstLoad),
@@ -174,7 +188,7 @@
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw err(400, 'Invalid email');
         const prev = meUser();
         if (prev && bans.has(prev.n)) throw err(403, 'Account suspended');
-        const doc = { n: prev ? prev.n : newId(), name: `${first} ${last}`.replace(/\s+/g, ' ').slice(0, 60), email, isAdmin: ORGANIZERS.includes(email), at: Date.now() };
+        const doc = { profile: (prev && prev.profile) || {}, n: prev ? prev.n : newId(), name: `${first} ${last}`.replace(/\s+/g, ' ').slice(0, 60), email, isAdmin: ORGANIZERS.includes(email), at: Date.now() };
         try { await db.doc('users/' + uid).set(doc); }
         catch (e) { throw err(403, 'You don\'t have permission to post on this page: ask to be invited as an Editor.'); }
         users.set(doc.n, { ...doc, uid });
@@ -191,7 +205,7 @@
         return { ok: true };
       }
       if (method === 'GET' && p === '/api/me') {
-        return { user: { id: self.n, name: self.name, isAdmin: self.isAdmin }, cursor: seq, conversations: [...convs.values()].filter(visible).map(summary) };
+        return { user: { id: self.n, name: self.name, isAdmin: self.isAdmin, profile: self.profile || {} }, cursor: seq, conversations: [...convs.values()].filter(visible).map(summary) };
       }
       if (method === 'GET' && p === '/api/users') {
         const q = (u.searchParams.get('q') || '').toLowerCase();
@@ -203,7 +217,7 @@
         if (method === 'GET') {
           const before = Number(u.searchParams.get('before')) || Infinity;
           const list = convMsgs(c.n).filter((x) => x.id < before);
-          return { messages: list.slice(-50), hasMore: false };
+          return { messages: list.slice(-50).map((x) => ({ ...x, myReaction: myReaction(x.id) })), hasMore: false };
         }
         if (c.type === 'announce' && !self.isAdmin) throw err(403, 'Only organisers can post here');
         const text = String(body.text || '').trim();
@@ -269,6 +283,35 @@
         if (msg.userId !== self.n && !self.isAdmin) throw err(403, 'You cannot delete this message');
         await db.doc('msgs/' + msg.id).update({ del: true, t: '' });
         return { ok: true };
+      }
+      if ((m = p.match(/^\/api\/messages\/(\d+)\/react$/)) && method === 'POST') {
+        const msg = msgs.get(Number(m[1]));
+        if (!msg || msg.deleted) throw err(404, 'Message not found');
+        getConv(msg.conversationId);
+        const emoji = body.emoji ? String(body.emoji) : '';
+        if (emoji && !window.DEMO_REACTIONS.includes(emoji)) throw err(400, 'Reaction not available');
+        const key = `${msg.id}_${self.n}`;
+        if (emoji) { const d = { m: msg.id, u: self.n, e: emoji, at: Date.now() }; await db.doc('reacts/' + key).set(d); reacts.set(key, d); }
+        else { await db.doc('reacts/' + key).delete(); reacts.delete(key); }
+        return { message: { ...msg, reactions: reactionCounts(msg.id), myReaction: emoji || null } };
+      }
+      if ((m = p.match(/^\/api\/messages\/(\d+)\/reactions$/)) && method === 'GET') {
+        const msg = msgs.get(Number(m[1]));
+        if (!msg) throw err(404, 'Message not found');
+        getConv(msg.conversationId);
+        return { reactions: [...reacts.values()].filter((r) => r.m === msg.id).sort((a, b) => b.at - a.at)
+          .map((r) => ({ emoji: r.e, userId: r.u, name: (users.get(r.u) || {}).name || 'Participant' })) };
+      }
+      if (method === 'PUT' && p === '/api/me/profile') {
+        const profile = window.DEMO_CLEAN_PROFILE(body.profile || {}, err);
+        await db.doc('users/' + uid).update({ profile });
+        self.profile = profile;
+        return { profile };
+      }
+      if ((m = p.match(/^\/api\/users\/(\d+)$/)) && method === 'GET') {
+        const t = users.get(Number(m[1]));
+        if (!t) throw err(404, 'User not found');
+        return { id: t.n, name: t.name, isAdmin: t.isAdmin, profile: t.profile || {} };
       }
       if (method === 'POST' && p === '/api/admin/channels') {
         if (!self.isAdmin) throw err(403, 'Organisers only');

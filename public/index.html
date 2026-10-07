@@ -102,7 +102,7 @@
       <header class="bar">
         <img class="bar-logo" src="/wordmark.svg" alt="Global Reunion, Cruise Edition" width="582" height="180">
         <div class="bar-actions">
-          <span id="me-avatar" class="avatar"></span>
+          <button type="button" id="me-avatar" class="avatar" aria-label="My profile"></button>
           <button id="btn-info" class="icon" title="Useful info" aria-label="Useful info"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1.4" fill="currentColor"/></svg></button>
           <button id="btn-new" class="icon" title="New chat" aria-label="New chat"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 8v5M9.5 10.5h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
           <button id="btn-menu" class="icon" title="Menu" aria-label="Menu"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/></svg></button>
@@ -120,6 +120,10 @@
       </div>
       <div id="push-card" class="push-card hidden"></div>
       <ul id="conv-list" class="list"></ul>
+      <button id="fab-info" class="fab fab-info" type="button" aria-label="Useful info">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 11v6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1.5" fill="currentColor"/></svg>
+        Info
+      </button>
       <button id="fab-new" class="fab" type="button">
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
         New chat

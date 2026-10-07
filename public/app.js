@@ -130,6 +130,7 @@
   const plainTitle = (c) => (c.type === 'dm' ? c.title : c.title.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u, ''));
   const ICON_PIN = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M14 3l7 7-3 1-4 4 1 5-2 1-4-4-5 5-1-1 5-5-4-4 1-2 5 1 4-4z" fill="currentColor"/></svg>';
   const ICON_REPLY = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M10 7L4 12l6 5M4 12h10a6 6 0 0 1 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const ICON_SMILE = '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.5 14.5q3.5 3.5 7 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="10" r="1.3" fill="currentColor"/><circle cx="15" cy="10" r="1.3" fill="currentColor"/></svg>';
   const ICON_TRASH = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const isJumbo = (t) => t.length <= 12 && /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\u200D|\uFE0F|\s)+$/u.test(t) && (t.match(/\p{Extended_Pictographic}/gu) || []).length <= 3;
   function fmtTime(ts) {
@@ -294,6 +295,8 @@
       }
       const store = state.messages.get(m.conversationId);
       const known = store && store.has(m.id);
+      // Il polling manda i conteggi a tutti, ma non "la mia" reazione: la teniamo da prima.
+      if (known && m.myReaction === undefined) m.myReaction = m.deleted ? null : store.get(m.id).myReaction;
       if (store) store.set(m.id, m);
 
       const isNewest = !conv.lastMessage || m.id >= conv.lastMessage.id;
@@ -861,7 +864,7 @@
     if (sameAuthor) div.classList.add('cont');
     if (!mine && conv && conv.type !== 'dm' && !sameAuthor) {
       const a = el('span', 'author c-' + palette(m.userId), m.userName);
-      a.addEventListener('click', (e) => { e.stopPropagation(); userMenu(m.userId, m.userName); });
+      a.addEventListener('click', (e) => { e.stopPropagation(); showProfile(m.userId, m.userName); });
       div.append(a);
     }
     if (m.replyTo && !m.deleted) {
@@ -874,27 +877,50 @@
     }
     div.append(el('span', 'text' + (!m.deleted && isJumbo(m.text) ? ' jumbo' : ''), m.deleted ? '🚫 Message deleted' : m.text));
     div.append(el('span', 'meta', fmtTime(m.createdAt)));
-    const canReply = !m.deleted && conv && (conv.type !== 'announce' || state.me.isAdmin);
-    if (canReply) {
-      const rb = el('button', 'msg-act msg-reply');
-      rb.innerHTML = ICON_REPLY;
-      rb.title = 'Reply';
-      rb.setAttribute('aria-label', 'Reply');
-      rb.addEventListener('click', (e) => { e.stopPropagation(); div.classList.remove('show-actions'); startReply(m); });
+    // Reazioni sotto la bolla, come su WhatsApp: toccandole si vede chi ha reagito.
+    const reacts = !m.deleted && m.reactions && Object.entries(m.reactions).filter(([, n]) => n > 0);
+    if (reacts && reacts.length) {
+      div.classList.add('has-reacts');
+      const rb = el('button', 'reacts');
+      rb.type = 'button';
+      let total = 0;
+      for (const [emoji, n] of reacts) {
+        total += n;
+        rb.append(el('span', 'r-emoji' + (m.myReaction === emoji ? ' mine' : ''), emoji));
+      }
+      if (total > 1) rb.append(el('span', 'r-count', String(total)));
+      rb.title = 'See who reacted';
+      rb.addEventListener('click', (e) => { e.stopPropagation(); showReactions(m); });
       div.append(rb);
-      div.addEventListener('click', () => div.classList.toggle('show-actions'));
     }
-    if (!m.deleted && (mine || state.me.isAdmin)) {
-      const del = el('button', 'msg-del');
-      del.innerHTML = ICON_TRASH;
-      del.title = 'Delete';
-      del.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (!await askConfirm('Delete this message for everyone?', 'Delete')) return;
-        try { await api('DELETE', `/api/messages/${m.id}`); } catch (err) { toast(err.message); }
+    const canReact = !m.deleted;
+    const canReply = !m.deleted && conv && (conv.type !== 'announce' || state.me.isAdmin);
+    const canDelete = !m.deleted && (mine || state.me.isAdmin);
+    if (canReact || canReply || canDelete) {
+      const tools = el('div', 'msg-tools');
+      const tool = (cls, icon, label, fn) => {
+        const b = el('button', 'msg-act ' + cls);
+        b.type = 'button';
+        b.innerHTML = icon;
+        b.title = label;
+        b.setAttribute('aria-label', label);
+        b.addEventListener('click', (e) => { e.stopPropagation(); div.classList.remove('show-actions'); fn(); });
+        tools.append(b);
+      };
+      if (canReact) tool('msg-react', ICON_SMILE, 'React', () => openReactPicker(div, m));
+      if (canReply) tool('msg-reply', ICON_REPLY, 'Reply', () => startReply(m));
+      if (canDelete) {
+        tool('msg-del', ICON_TRASH, 'Delete', async () => {
+          if (!await askConfirm('Delete this message for everyone?', 'Delete')) return;
+          try { await api('DELETE', `/api/messages/${m.id}`); } catch (err) { toast(err.message); }
+        });
+      }
+      div.append(tools);
+      div.addEventListener('click', () => {
+        if (longPressed) return;
+        for (const o of document.querySelectorAll('.msg.show-actions')) if (o !== div) o.classList.remove('show-actions');
+        div.classList.toggle('show-actions');
       });
-      div.append(del);
-      if (!canReply) div.addEventListener('click', () => div.classList.toggle('show-actions'));
     }
     frag.append(div);
     return frag;
@@ -952,6 +978,125 @@
     void target.offsetWidth;
     target.classList.add('flash');
   }
+
+  // ----------------------------------------------------------- Reazioni
+  const REACTIONS = ['❤️', '😂', '👍', '🔥', '😮', '😢', '🎉'];
+  let longPressed = false;
+
+  function closeReactPicker() {
+    const pop = document.getElementById('react-pop');
+    if (pop) pop.remove();
+  }
+  function openReactPicker(bubble, m) {
+    closeReactPicker();
+    const pop = el('div', 'react-pop');
+    pop.id = 'react-pop';
+    for (const emoji of REACTIONS) {
+      const b = el('button', 'react-opt' + (m.myReaction === emoji ? ' on' : ''), emoji);
+      b.type = 'button';
+      b.setAttribute('aria-label', 'React ' + emoji);
+      b.addEventListener('click', (e) => { e.stopPropagation(); closeReactPicker(); react(m, m.myReaction === emoji ? null : emoji); });
+      pop.append(b);
+    }
+    document.body.append(pop);
+    // Sopra la bolla (o sotto, se non c'è spazio), senza uscire dallo schermo.
+    const r = bubble.getBoundingClientRect();
+    const w = pop.offsetWidth, h = pop.offsetHeight;
+    const vw = document.documentElement.clientWidth;
+    let left = bubble.classList.contains('me') ? r.right - w : r.left;
+    left = Math.max(8, Math.min(left, vw - w - 8));
+    let top = r.top - h - 8;
+    if (top < 70) top = r.bottom + 8;
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+    if (navigator.vibrate && prefs.vibrate) navigator.vibrate(12);
+  }
+  document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#react-pop')) closeReactPicker(); }, true);
+  // Si chiude se scorri tu (non quando arriva un messaggio e la chat scorre da sola).
+  $('#messages').addEventListener('wheel', closeReactPicker, { passive: true });
+  $('#messages').addEventListener('touchmove', closeReactPicker, { passive: true });
+
+  async function react(m, emoji) {
+    // Subito a schermo, poi il server conferma (e manda i conteggi a tutti).
+    const before = { reactions: m.reactions, myReaction: m.myReaction };
+    const counts = { ...(m.reactions || {}) };
+    if (m.myReaction) { counts[m.myReaction] = (counts[m.myReaction] || 1) - 1; if (counts[m.myReaction] <= 0) delete counts[m.myReaction]; }
+    if (emoji) counts[emoji] = (counts[emoji] || 0) + 1;
+    const apply = (patch) => {
+      const store = state.messages.get(m.conversationId);
+      const cur = (store && store.get(m.id)) || m;
+      const next = { ...cur, ...patch };
+      if (store) store.set(m.id, next);
+      if (state.current === m.conversationId) renderMessage(next);
+      return next;
+    };
+    m = apply({ reactions: Object.keys(counts).length ? counts : null, myReaction: emoji });
+    try {
+      const res = await api('POST', `/api/messages/${m.id}/react`, { emoji });
+      apply({ reactions: res.message.reactions, myReaction: res.message.myReaction });
+    } catch (err) {
+      apply(before);
+      toast(err.message);
+    }
+  }
+
+  async function showReactions(m) {
+    let list;
+    try { list = (await api('GET', `/api/messages/${m.id}/reactions`)).reactions; } catch (err) { return toast(err.message); }
+    openModal('Reactions', (body) => {
+      const counts = {};
+      for (const r of list) counts[r.emoji] = (counts[r.emoji] || 0) + 1;
+      const summary = el('div', 'react-summary');
+      for (const [emoji, n] of Object.entries(counts)) summary.append(el('span', 'react-chip', `${emoji} ${n}`));
+      body.append(summary);
+      const ul = el('ul', 'list');
+      for (const r of list) {
+        const li = el('li');
+        const av = el('span', 'avatar');
+        setAvatar(av, { type: 'user', title: r.name, otherUserId: r.userId });
+        const isMe = r.userId === state.me.id;
+        const info = el('div', 'info');
+        info.append(el('span', 'name', isMe ? 'You' : r.name));
+        if (isMe) info.append(el('span', 'preview', 'Tap to remove'));
+        li.append(av, info, el('span', 'react-big', r.emoji));
+        li.addEventListener('click', () => {
+          closeModal();
+          if (isMe) react(state.messages.get(m.conversationId)?.get(m.id) || m, null);
+          else showProfile(r.userId, r.name);
+        });
+        ul.append(li);
+      }
+      if (!list.length) body.append(el('p', 'muted center', 'No reactions yet'));
+      body.append(ul);
+    });
+  }
+
+  // Tieni premuto su una bolla per reagire.
+  (() => {
+    let timer = null, startX = 0, startY = 0;
+    const box = $('#messages');
+    const cancel = () => { clearTimeout(timer); timer = null; };
+    box.addEventListener('touchstart', (e) => {
+      const b = e.target.closest('.msg');
+      longPressed = false;
+      if (!b || !b.querySelector('.msg-react') || e.touches.length > 1 || e.target.closest('button, a')) return;
+      startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+      timer = setTimeout(() => {
+        timer = null;
+        const msg = state.messages.get(state.current)?.get(Number(b.dataset.id));
+        if (!msg) return;
+        longPressed = true;
+        setTimeout(() => { longPressed = false; }, 600);
+        openReactPicker(b, msg);
+      }, 450);
+    }, { passive: true });
+    box.addEventListener('touchmove', (e) => {
+      if (timer && (Math.abs(e.touches[0].clientX - startX) > 8 || Math.abs(e.touches[0].clientY - startY) > 8)) cancel();
+    }, { passive: true });
+    box.addEventListener('touchend', cancel);
+    box.addEventListener('touchcancel', cancel);
+    box.addEventListener('contextmenu', (e) => { if (e.target.closest('.msg')) e.preventDefault(); });
+  })();
 
   // Su telefono: scorri una bolla verso destra per rispondere, come su WhatsApp.
   (() => {
@@ -1334,6 +1479,7 @@
   }
 
   $('#fab-new').addEventListener('click', () => $('#btn-new').click());
+  $('#fab-info').addEventListener('click', usefulInfo);
   $('#btn-new').addEventListener('click', () => {
     openModal('New chat', (body) => {
       body.append(menuButton('👥  Create a group', newGroup, 'primary'));
@@ -1390,24 +1536,119 @@
     });
   }
 
-  function userMenu(userId, userName) {
-    if (userId === state.me.id) return;
-    openModal(userName, (body) => {
-      body.append(menuButton('💬  Send a private message', () => startDm(userId)));
-      if (state.me.isAdmin) {
-        body.append(menuButton('⛔  Suspend user (organisers)', async () => {
-          if (!await askConfirm(`Suspend ${userName}? They will no longer be able to use the chat.`, 'Suspend')) return;
-          try { await api('POST', '/api/admin/ban', { userId }); toast('User suspended'); closeModal(); }
-          catch (err) { toast(err.message); }
-        }, 'danger'));
+  // ----------------------------------------------------------- Profili
+  // Instagram & co. per ritrovarsi una volta scesi dalla nave. Si apre toccando un nome
+  // (o il proprio avatar in alto); da qui anche il messaggio privato.
+  const SOCIALS = [
+    { key: 'instagram', label: 'Instagram', icon: '📸', url: (h) => `https://instagram.com/${h}`, show: (h) => '@' + h, hint: 'your.username' },
+    { key: 'tiktok', label: 'TikTok', icon: '🎵', url: (h) => `https://www.tiktok.com/@${h}`, show: (h) => '@' + h, hint: 'your.username' },
+    { key: 'linkedin', label: 'LinkedIn', icon: '💼', url: (h) => `https://www.linkedin.com/in/${h}`, show: (h) => h, hint: 'linkedin.com/in/…' },
+    { key: 'whatsapp', label: 'WhatsApp', icon: '💬', url: (h) => `https://wa.me/${h.replace(/\D/g, '')}`, show: (h) => h, hint: '+39 333 123 4567' },
+  ];
+
+  async function showProfile(userId, userName) {
+    const mine = userId === state.me.id;
+    let user = mine ? { ...state.me } : { id: userId, name: userName || '', profile: null };
+    const draw = () => openModal(mine ? 'My profile' : 'Profile', (body) => {
+      const card = el('div', 'profile-card');
+      const av = el('span', 'avatar');
+      setAvatar(av, { type: 'user', title: user.name, otherUserId: user.id });
+      card.append(av, el('strong', 'profile-name', user.name));
+      if (user.isAdmin) card.append(el('span', 'profile-badge', '⭐ Organiser'));
+      const p = user.profile || {};
+      if (p.city) card.append(el('span', 'profile-city', '📍 ' + p.city));
+      if (p.bio) card.append(el('p', 'profile-bio', p.bio));
+      body.append(card);
+      if (!user.profile) body.append(el('p', 'muted center', 'Loading…'));
+      const links = SOCIALS.filter((s) => p[s.key]);
+      if (links.length) {
+        const box = el('div', 'profile-links');
+        for (const s of links) {
+          const a = el('a', 'profile-link');
+          a.href = s.url(p[s.key]);
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.append(el('span', 'pl-icon', s.icon), el('span', 'pl-label', s.label), el('span', 'pl-value', s.show(p[s.key])));
+          box.append(a);
+        }
+        body.append(box, el('p', 'muted small center', 'Links open once you are back on land 🏝️'));
+      } else if (user.profile) {
+        body.append(el('p', 'muted center', mine ? 'Add your Instagram and more, so new friends can find you after the cruise.' : `${user.name.split(' ')[0]} hasn't added any socials yet.`));
+      }
+      if (mine) body.append(menuButton('✏️  Edit my profile', editProfile));
+      else {
+        body.append(menuButton('💬  Send a private message', () => startDm(userId)));
+        if (state.me.isAdmin && !user.isAdmin) {
+          body.append(menuButton('⛔  Suspend user (organisers)', async () => {
+            if (!await askConfirm(`Suspend ${user.name}? They will no longer be able to use the chat.`, 'Suspend')) return;
+            try { await api('POST', '/api/admin/ban', { userId }); toast('User suspended'); closeModal(); }
+            catch (err) { toast(err.message); }
+          }, 'danger'));
+        }
       }
     });
+    if (!mine) {
+      draw();
+      try { user = await api('GET', `/api/users/${userId}`); } catch (err) { return toast(err.message); }
+      if (!$('#modal').classList.contains('hidden')) draw();
+    } else {
+      user.profile = user.profile || {};
+      draw();
+    }
   }
+
+  function editProfile() {
+    const p = { ...(state.me.profile || {}) };
+    openModal('Edit profile', (body) => {
+      const form = el('form', 'profile-form');
+      const field = (key, label, hint, opts = {}) => {
+        const wrap = el('label', 'field');
+        wrap.append(el('span', 'ed-label', label));
+        const inp = el(opts.area ? 'textarea' : 'input', 'ed-input');
+        if (!opts.area) inp.type = opts.type || 'text';
+        inp.name = key;
+        inp.placeholder = hint;
+        inp.value = p[key] || '';
+        if (opts.max) inp.maxLength = opts.max;
+        if (opts.area) inp.rows = 2;
+        inp.autocapitalize = opts.caps ? 'sentences' : 'off';
+        inp.autocomplete = 'off';
+        inp.spellcheck = !!opts.caps;
+        wrap.append(inp);
+        form.append(wrap);
+      };
+      field('city', '📍 Where are you from', 'e.g. Milan', { max: 40, caps: true });
+      field('bio', '👋 About you', 'Two lines about you', { max: 160, area: true, caps: true });
+      for (const s of SOCIALS) field(s.key, `${s.icon} ${s.label}`, s.hint, { type: s.key === 'whatsapp' ? 'tel' : 'text' });
+      form.append(el('p', 'muted small', 'Everything is optional and visible to the other Global Reunion participants.'));
+      const row = el('div', 'confirm-row');
+      const cancel = el('button', 'btn secondary', 'Cancel');
+      cancel.type = 'button';
+      cancel.addEventListener('click', () => showProfile(state.me.id));
+      const save = el('button', 'btn', 'Save');
+      save.type = 'submit';
+      row.append(cancel, save);
+      form.append(row);
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const profile = Object.fromEntries([...form.querySelectorAll('[name]')].map((i) => [i.name, i.value]));
+        save.disabled = true;
+        try {
+          const res = await api('PUT', '/api/me/profile', { profile });
+          state.me.profile = res.profile;
+          toast('Profile saved');
+          showProfile(state.me.id);
+        } catch (err) { toast(err.message); save.disabled = false; }
+      });
+      body.append(form);
+    });
+  }
+  $('#me-avatar').addEventListener('click', () => showProfile(state.me.id));
 
   $('#chat-title-btn').addEventListener('click', async () => {
     const conv = state.convs.get(state.current);
     if (!conv) return;
-    if (conv.type === 'dm') return userMenu(conv.otherUserId, conv.title);
+    if (conv.type === 'dm') return showProfile(conv.otherUserId, conv.title);
     if (conv.type !== 'group') return;
     let info;
     try { info = await api('GET', `/api/conversations/${conv.id}`); } catch (err) { return toast(err.message); }
@@ -1419,7 +1660,7 @@
         const av = el('span', 'avatar');
         setAvatar(av, { type: 'user', title: u.name, otherUserId: u.id });
         li.append(av, el('div', 'info name', u.name + (u.id === state.me.id ? ' (you)' : '')));
-        if (u.id !== state.me.id) li.addEventListener('click', () => userMenu(u.id, u.name));
+        li.addEventListener('click', () => showProfile(u.id, u.name));
         ul.append(li);
       }
       body.append(ul);
@@ -1485,6 +1726,7 @@
           } catch (err) { toast(err.message); }
         }));
       }
+      body.append(menuButton('👤  My profile', () => showProfile(state.me.id)));
       body.append(menuButton('ℹ️  Useful info', usefulInfo));
       body.append(menuButton('🛟  Contact staff', contactStaff));
       body.append(menuButton('🔔  Notifications, sound & vibration', notificationsDialog));
