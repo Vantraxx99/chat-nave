@@ -145,12 +145,18 @@
       return c.type === 'dm' ? (users.get(otherOf(c)) || { name: 'Chat' }).name : c.name;
     };
 
+    // Chat private eliminate (solo per questa persona, in questo browser).
+    const clearedKey = 'gr-cleared-' + uid;
+    let cleared = {};
+    try { cleared = JSON.parse(localStorage.getItem(clearedKey) || '{}'); } catch {}
+    const clearedOf = (c) => cleared[c] || 0;
+
     function summary(c) {
-      const list = convMsgs(c.n);
+      const list = convMsgs(c.n).filter((m) => m.id > clearedOf(c.n));
       const last = list[list.length - 1] || null;
       const lastRead = reads[c.n] || 0;
       const s = {
-        id: c.n, type: c.type, title: title(c), lastMessage: last,
+        id: c.n, type: c.type, title: title(c), lastMessage: last, clearedId: clearedOf(c.n),
         unread: list.filter((m) => m.id > lastRead && m.userId !== me().n && !m.deleted).length,
       };
       if (c.type === 'dm') s.otherUserId = otherOf(c);
@@ -238,7 +244,7 @@
         const c = getConv(m[1]);
         if (method === 'GET') {
           const before = Number(u.searchParams.get('before')) || Infinity;
-          const list = convMsgs(c.n).filter((x) => x.id < before);
+          const list = convMsgs(c.n).filter((x) => x.id < before && x.id > clearedOf(c.n));
           return { messages: list.slice(-50).map((x) => ({ ...x, myReaction: myReaction(x.id) })), hasMore: false };
         }
         if (c.type === 'announce' && !self.isAdmin) throw err(403, 'Only organisers can post here');
@@ -291,6 +297,18 @@
           await db.doc('convs/' + c.n).update({ members: [...c.members, ...ids] });
           await post(c, `➕ ${self.name} added ${ids.map((id) => users.get(id).name).join(', ')}`);
         }
+        return { ok: true };
+      }
+      if ((m = p.match(/^\/api\/conversations\/(\d+)$/)) && method === 'DELETE') {
+        const c = getConv(m[1]);
+        if (c.type === 'group') {
+          await post(c, `🚪 ${self.name} left the group`);
+          await db.doc('convs/' + c.n).update({ members: c.members.filter((id) => id !== self.n) });
+        } else if (c.type === 'dm') {
+          const list = convMsgs(c.n);
+          cleared[c.n] = list.length ? list[list.length - 1].id : 1;
+          try { localStorage.setItem(clearedKey, JSON.stringify(cleared)); } catch {}
+        } else throw err(400, 'This chat can\'t be deleted');
         return { ok: true };
       }
       if ((m = p.match(/^\/api\/conversations\/(\d+)\/leave$/))) {
@@ -373,7 +391,7 @@
       const pending = () => {
         const self = me();
         if (!self) return [];
-        return [...msgs.values()].filter((x) => x.seq > since && visible(convs.get(x.conversationId))).sort((a, b) => a.seq - b.seq);
+        return [...msgs.values()].filter((x) => x.seq > since && visible(convs.get(x.conversationId)) && x.id > clearedOf(x.conversationId)).sort((a, b) => a.seq - b.seq);
       };
       return new Promise((resolve) => {
         const done = () => {

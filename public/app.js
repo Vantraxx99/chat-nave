@@ -681,7 +681,8 @@
   function sortedConvs() {
     // In cima, fissati: Staff support, poi Announcements, poi i canali pubblici.
     const pinned = (c) => (c.type === 'staff' ? 3 : c.type === 'announce' ? 2 : c.type === 'public' ? 1 : 0);
-    const all = [...state.convs.values()];
+    // Chat private eliminate: nascoste finché non arriva un messaggio nuovo.
+    const all = [...state.convs.values()].filter((c) => !(c.type === 'dm' && c.clearedId && !c.lastMessage && state.current !== c.id));
     if (tab === 'support') return all.filter(isInbox).sort((a, b) => (b.unread ? 1 : 0) - (a.unread ? 1 : 0) || byTime(a, b));
     let list;
     if (state.me.isAdmin) {
@@ -764,9 +765,11 @@
       else if (c.type === 'announce' || c.type === 'public' || (c.type === 'staff' && tab !== 'support')) { const pin = el('span', 'pin'); pin.innerHTML = ICON_PIN; pin.title = 'Pinned'; r2.append(pin); }
       info.append(r1, r2);
       li.append(av, info);
-      li.addEventListener('click', () => (c.virtual === 'new' ? contactStaff() : c.virtual === 'inbox' ? selectTab('support') : openConv(c.id)));
+      li.addEventListener('click', () => (li.dataset.held ? null : c.virtual === 'new' ? contactStaff() : c.virtual === 'inbox' ? selectTab('support') : openConv(c.id)));
       // Appena il dito tocca la chat iniziamo a scaricarne i messaggi (si guadagna ~100-300 ms).
       if (!c.virtual) li.addEventListener('pointerdown', () => { loadMessages(c.id).catch(() => {}); }, { passive: true });
+      // Tieni premuto (o tasto destro) per eliminare la chat, come su WhatsApp.
+      if (c.type === 'dm' || c.type === 'group') onLongPress(li, () => chatActions(c));
       ul.append(li);
     }
     if (!shown) {
@@ -868,6 +871,52 @@
   }
   function goBack() {
     if (history.state && history.state.chat) history.back(); else closeConv();
+  }
+
+  // Pressione lunga (telefono) o tasto destro (computer). Il click che segue viene ignorato.
+  function onLongPress(node, fn) {
+    let timer = null, x = 0, y = 0;
+    const cancel = () => { clearTimeout(timer); timer = null; };
+    node.addEventListener('touchstart', (e) => {
+      x = e.touches[0].clientX; y = e.touches[0].clientY;
+      timer = setTimeout(() => {
+        timer = null;
+        node.dataset.held = '1';
+        setTimeout(() => { delete node.dataset.held; }, 700);
+        if (navigator.vibrate && prefs.vibrate) navigator.vibrate(15);
+        fn();
+      }, 500);
+    }, { passive: true });
+    node.addEventListener('touchmove', (e) => {
+      if (timer && (Math.abs(e.touches[0].clientX - x) > 8 || Math.abs(e.touches[0].clientY - y) > 8)) cancel();
+    }, { passive: true });
+    node.addEventListener('touchend', cancel);
+    node.addEventListener('touchcancel', cancel);
+    node.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!node.dataset.held) fn(); });
+  }
+
+  function chatActions(c) {
+    openModal(plainTitle(c), (body) => {
+      if (c.type === 'group') body.append(menuButton('🚪  Leave & delete group', () => deleteChat(c), 'danger'));
+      else body.append(menuButton('🗑️  Delete chat', () => deleteChat(c), 'danger'));
+    });
+  }
+
+  async function deleteChat(c) {
+    const question = c.type === 'group'
+      ? `Leave "${plainTitle(c)}"? You'll stop receiving its messages and it will disappear from your chats.`
+      : `Delete your chat with ${c.title}? Messages are removed for you only: ${c.title.split(' ')[0]} will still see them. If they write again, the chat comes back.`;
+    if (!await askConfirm(question, c.type === 'group' ? 'Leave' : 'Delete')) return;
+    try { await api('DELETE', `/api/conversations/${c.id}`); } catch (err) { return toast(err.message); }
+    state.messages.delete(c.id);
+    if (c.type === 'group') state.convs.delete(c.id);
+    else {
+      const conv = state.convs.get(c.id);
+      if (conv) { conv.clearedId = (conv.lastMessage && conv.lastMessage.id) || conv.lastSeenId || 1; conv.lastMessage = null; conv.unread = 0; }
+    }
+    if (state.current === c.id) goBack();
+    renderConvList();
+    toast(c.type === 'group' ? 'You left the group' : 'Chat deleted');
   }
   $('#btn-back').addEventListener('click', goBack);
   window.addEventListener('popstate', () => {
@@ -1720,6 +1769,8 @@
       if (mine) body.append(menuButton('✏️  Edit my profile', editProfile));
       else {
         body.append(menuButton('💬  Send a private message', () => startDm(userId)));
+        const dm = [...state.convs.values()].find((c) => c.type === 'dm' && c.otherUserId === userId && (c.lastMessage || state.current === c.id));
+        if (dm) body.append(menuButton('🗑️  Delete chat', () => deleteChat(dm), 'danger'));
         if (state.me.isAdmin) {
           body.append(menuButton('🔑  Reset password (organisers)', async () => {
             if (!await askConfirm(`Reset ${user.name}'s password? They will be signed out and will choose a new one by confirming their last name.`, 'Reset')) return;
@@ -1880,16 +1931,7 @@
       }
       body.append(ul);
       body.append(menuButton('➕  Add people', () => addMembers(conv, new Set(info.members.map((u) => u.id)))));
-      body.append(menuButton('🚪  Leave group', async () => {
-        if (!await askConfirm('Leave this group?', 'Leave')) return;
-        try {
-          await api('POST', `/api/conversations/${conv.id}/leave`);
-          closeModal();
-          state.convs.delete(conv.id);
-          state.messages.delete(conv.id);
-          goBack();
-        } catch (err) { toast(err.message); }
-      }, 'danger'));
+      body.append(menuButton('🚪  Leave & delete group', () => deleteChat(conv), 'danger'));
     });
   });
 

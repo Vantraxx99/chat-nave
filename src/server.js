@@ -79,7 +79,8 @@ const q = {
   visibleConvs: db.prepare(`
     SELECT c.id, c.type, c.name, c.dm_key,
       (SELECT MAX(id) FROM messages WHERE conversation_id = c.id) AS last_id,
-      COALESCE((SELECT last_read_id FROM reads WHERE user_id = ? AND conversation_id = c.id), 0) AS last_read_id
+      COALESCE((SELECT last_read_id FROM reads WHERE user_id = ? AND conversation_id = c.id), 0) AS last_read_id,
+      COALESCE((SELECT cleared_id FROM cleared WHERE user_id = ? AND conversation_id = c.id), 0) AS cleared_id
     FROM conversations c
     WHERE c.type IN ('public','announce')
        OR c.id IN (SELECT conversation_id FROM members WHERE user_id = ?)
@@ -100,7 +101,12 @@ const q = {
       m.reply_to, r.user_id AS r_user_id, ru.name AS r_user_name, r.text AS r_text, r.deleted AS r_deleted
     FROM messages m JOIN users u ON u.id = m.user_id
     LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.user_id
-    WHERE m.conversation_id = ? AND m.id < ? ORDER BY m.id DESC LIMIT ?`),
+    WHERE m.conversation_id = ? AND m.id > ? AND m.id < ? ORDER BY m.id DESC LIMIT ?`),
+  clearedId: db.prepare(`SELECT cleared_id FROM cleared WHERE user_id = ? AND conversation_id = ?`),
+  setCleared: db.prepare(`
+    INSERT INTO cleared (user_id, conversation_id, cleared_id) VALUES (?, ?, ?)
+    ON CONFLICT(user_id, conversation_id) DO UPDATE SET cleared_id = excluded.cleared_id`),
+  lastMsgId: db.prepare(`SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE conversation_id = ?`),
   insertMsg: db.prepare(`INSERT INTO messages (conversation_id, user_id, text, created_at, seq, reply_to) VALUES (?, ?, ?, ?, ?, ?)`),
   deleteMsg: db.prepare(`UPDATE messages SET deleted = 1, text = '', reactions = NULL, seq = ? WHERE id = ?`),
   setReaction: db.prepare(`
@@ -128,6 +134,7 @@ const q = {
       AND (c.type IN ('public','announce')
            OR EXISTS (SELECT 1 FROM members WHERE conversation_id = c.id AND user_id = ?)
            OR (c.type = 'staff' AND ? = 1))
+      AND m.id > COALESCE((SELECT cleared_id FROM cleared WHERE user_id = ? AND conversation_id = c.id), 0)
     ORDER BY m.seq LIMIT 300`),
   sincePublic: db.prepare(`
     SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq, m.reactions,
@@ -172,13 +179,15 @@ function convTitle(conv, user) {
 
 function conversationSummary(row, user) {
   const userId = user.id;
-  const last = row.last_id ? q.msgById.get(row.last_id) : null;
+  // Chat eliminata da questa persona: conta solo ciò che è arrivato dopo.
+  const last = row.last_id && row.last_id > row.cleared_id ? q.msgById.get(row.last_id) : null;
   const summary = {
     id: row.id,
     type: row.type,
     title: convTitle(row, user),
     lastMessage: last ? publicMsg(last) : null,
-    unread: q.unread.get(row.id, row.last_read_id, userId).n,
+    unread: q.unread.get(row.id, Math.max(row.last_read_id, row.cleared_id), userId).n,
+    clearedId: row.cleared_id || 0,
   };
   if (row.type === 'dm') {
     const other = q.members.all(row.id).find((u) => u.id !== userId);
@@ -224,7 +233,7 @@ function flush() {
   const publicByCursor = new Map();
   for (const w of [...waiters]) {
     let rows;
-    if (users.has(w.userId)) rows = q.since.all(w.since, w.userId, w.isAdmin);
+    if (users.has(w.userId)) rows = q.since.all(w.since, w.userId, w.isAdmin, w.userId);
     else if (all) {
       let shared = publicByCursor.get(w.since);
       if (!shared) { shared = { rows: q.sincePublic.all(w.since) }; publicByCursor.set(w.since, shared); }
@@ -623,7 +632,7 @@ route('POST', '/api/logout', async (req) => {
 
 route('GET', '/api/me', async (req) => {
   const user = auth(req);
-  const conversations = q.visibleConvs.all(user.id, user.id, user.is_admin).map((r) => conversationSummary(r, user));
+  const conversations = q.visibleConvs.all(user.id, user.id, user.id, user.is_admin).map((r) => conversationSummary(r, user));
   return {
     user: { id: user.id, name: user.name, isAdmin: !!user.is_admin, profile: readProfile(q.userProfile.get(user.id)), hasPassword: !!user.has_password },
     cursor: seq,
@@ -695,7 +704,7 @@ route('GET', '/api/users/:id', async (req, res, { id }) => {
 route('GET', '/api/conversations/:id', async (req, res, { id }) => {
   const user = auth(req);
   const conv = getConvOr404(id, user);
-  const row = q.visibleConvs.all(user.id, user.id, user.is_admin).find((r) => r.id === conv.id);
+  const row = q.visibleConvs.all(user.id, user.id, user.id, user.is_admin).find((r) => r.id === conv.id);
   const summary = conversationSummary(row, user);
   if (conv.type === 'group') summary.members = q.members.all(conv.id);
   return summary;
@@ -705,7 +714,8 @@ route('GET', '/api/conversations/:id/messages', async (req, res, { id }, url) =>
   const user = auth(req);
   const conv = getConvOr404(id, user);
   const before = Number(url.searchParams.get('before')) || Number.MAX_SAFE_INTEGER;
-  const rows = q.history.all(conv.id, before, 50).reverse();
+  const cleared = (q.clearedId.get(user.id, conv.id) || { cleared_id: 0 }).cleared_id;
+  const rows = q.history.all(conv.id, cleared, before, 50).reverse();
   const messages = rows.map(publicMsg);
   if (rows.length) {
     const mine = new Map(q.myReactions.all(user.id, rows[0].id, rows[rows.length - 1].id).map((r) => [r.message_id, r.emoji]));
@@ -841,6 +851,24 @@ route('POST', '/api/conversations/:id/members', async (req, res, { id }) => {
   return { ok: true };
 });
 
+// "Delete chat" come su WhatsApp: una chat privata sparisce dalla tua lista e si svuota solo
+// per te (ricompare se arriva un messaggio nuovo); da un gruppo esci. Annunci e staff restano.
+route('DELETE', '/api/conversations/:id', async (req, res, { id }) => {
+  const user = auth(req);
+  const conv = getConvOr404(id, user);
+  if (conv.type === 'group') {
+    postMessage(conv, user.id, `🚪 ${user.name} left the group`);
+    q.removeMember.run(conv.id, user.id);
+  } else if (conv.type === 'dm') {
+    const last = q.lastMsgId.get(conv.id).id;
+    q.setCleared.run(user.id, conv.id, last);
+    q.upsertRead.run(user.id, conv.id, last);
+  } else {
+    throw new HttpError(400, 'This chat can\'t be deleted');
+  }
+  return { ok: true };
+});
+
 route('POST', '/api/conversations/:id/leave', async (req, res, { id }) => {
   const user = auth(req);
   const conv = getConvOr404(id, user);
@@ -895,7 +923,7 @@ route('GET', '/api/messages/:id/reactions', async (req, res, { id }) => {
 route('GET', '/api/poll', async (req, res, params, url) => {
   const user = auth(req);
   const since = Math.max(0, Number(url.searchParams.get('since')) || 0);
-  const rows = q.since.all(since, user.id, user.is_admin);
+  const rows = q.since.all(since, user.id, user.is_admin, user.id);
   const reply = (list) => ({
     messages: list.map(publicMsg),
     cursor: list.length ? list[list.length - 1].seq : Math.max(since, seq),

@@ -100,11 +100,11 @@ function createDemoServer() {
   const title = (c) => c.type === 'dm' ? users.get([...c.members].find((id) => id !== me.id)).name : c.name;
 
   function summary(c) {
-    const list = messages.filter((m) => m.conversationId === c.id);
+    const list = messages.filter((m) => m.conversationId === c.id && m.id > (c.cleared || 0));
     const last = list[list.length - 1] || null;
     const lastRead = reads.get(`${me.id}:${c.id}`) || 0;
     const s = {
-      id: c.id, type: c.type, title: title(c), lastMessage: last ? { ...last } : null,
+      id: c.id, type: c.type, title: title(c), lastMessage: last ? out(last) : null, clearedId: c.cleared || 0,
       unread: list.filter((m) => m.id > lastRead && m.userId !== me.id && !m.deleted).length,
     };
     if (c.type === 'dm') s.otherUserId = [...c.members].find((id) => id !== me.id);
@@ -179,7 +179,7 @@ function createDemoServer() {
       const c = getConv(m[1]);
       if (method === 'GET') {
         const before = Number(u.searchParams.get('before')) || Infinity;
-        const list = messages.filter((x) => x.conversationId === c.id && x.id < before).slice(-50);
+        const list = messages.filter((x) => x.conversationId === c.id && x.id < before && x.id > (c.cleared || 0)).slice(-50);
         return { messages: list.map((x) => ({ ...out(x), myReaction: (reacts.get(x.id) || new Map()).get(me.id) || null })), hasMore: false };
       }
       if (c.type === 'announce' && !me.isAdmin) throw err(403, 'Only organisers can post here');
@@ -223,6 +223,13 @@ function createDemoServer() {
       const c = getConv(m[1]);
       const added = (body.userIds || []).filter((id) => !c.members.has(id)).map((id) => { c.members.add(id); return users.get(id).name; });
       if (added.length) post(c, me, `➕ ${me.name} added ${added.join(', ')}`);
+      return { ok: true };
+    }
+    if ((m = p.match(/^\/api\/conversations\/(\d+)$/)) && method === 'DELETE') {
+      const c = getConv(m[1]);
+      if (c.type === 'group') { post(c, me, `🚪 ${me.name} left the group`); c.members.delete(me.id); }
+      else if (c.type === 'dm') c.cleared = Math.max(0, ...messages.filter((x) => x.conversationId === c.id).map((x) => x.id));
+      else throw err(400, 'This chat can\'t be deleted');
       return { ok: true };
     }
     if ((m = p.match(/^\/api\/conversations\/(\d+)\/leave$/))) {
@@ -294,7 +301,7 @@ function createDemoServer() {
   }
 
   function poll(since) {
-    const pending = () => messages.filter((m) => m.seq > since && visible(convs.get(m.conversationId))).sort((a, b) => a.seq - b.seq);
+    const pending = () => messages.filter((m) => m.seq > since && visible(convs.get(m.conversationId)) && m.id > (convs.get(m.conversationId).cleared || 0)).sort((a, b) => a.seq - b.seq);
     return new Promise((resolve) => {
       const done = () => {
         const list = pending();

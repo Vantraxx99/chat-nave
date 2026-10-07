@@ -137,6 +137,17 @@ db.exec(`
   );
 `);
 
+// "Elimina chat" per una persona sola: nasconde i messaggi fino a cleared_id (la chat torna
+// nella lista quando arriva un messaggio nuovo). Gli altri continuano a vedere tutto.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS cleared (
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    cleared_id      INTEGER NOT NULL,
+    PRIMARY KEY (user_id, conversation_id)
+  );
+`);
+
 // Unico canale di default: gli Annunci degli organizzatori. Per il resto i
 // partecipanti si creano i loro gruppi.
 function ensureDefaultChannels() {
