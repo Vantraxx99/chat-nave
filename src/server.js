@@ -523,7 +523,9 @@ route('POST', '/api/login/send-code', async (req) => {
   const sends = prev && now - prev.sent_at < 3600_000 ? prev.sends + 1 : 1;
   if (sends > 5) throw new HttpError(429, 'Too many codes requested: try again in an hour');
   const code = storeCode(email, 'email', CODE_TTL, sends);
-  try { await mail.sendCode(email, code); } catch (err) {
+  // Email personalizzata: il nome dal profilo, o quello appena scritto nella registrazione.
+  const name = user ? user.name.split(' ')[0] : cleanName(body.firstName).split(' ')[0].slice(0, 30);
+  try { await mail.sendCode(email, code, { name, purpose: user ? 'reset' : 'signup' }); } catch (err) {
     console.error('Invio email fallito:', err.message);
     q.deleteCode.run(email, 'email');
     throw new HttpError(502, 'We couldn\'t send the email right now, please try again in a moment');

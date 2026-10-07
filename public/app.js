@@ -50,14 +50,26 @@
 
   // Su iPhone la tastiera non ridimensiona la pagina: usiamo l'area visibile reale,
   // così intestazione e campo di scrittura restano al loro posto.
+  // Aperta dalla Home, iOS conta l'area visibile SENZA la barra di stato (~60 px): senza
+  // correzione la pagina si fermerebbe 60 px prima del fondo (fascia blu sotto, e sopra la
+  // tastiera). Misuriamo quella differenza a tastiera chiusa e la aggiungiamo sempre.
   const vv = window.visualViewport;
   if (vv) {
+    let gap = 0;
+    const typing = () => { const a = document.activeElement; return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'); };
     const fit = () => {
-      document.documentElement.style.setProperty('--app-h', vv.height + 'px');
+      const full = document.documentElement.clientHeight;
+      if (!typing()) gap = Math.max(0, Math.min(120, full - vv.height));
+      const h = Math.min(full, vv.height + gap);
+      document.documentElement.style.setProperty('--app-h', h + 'px');
+      // Con la tastiera aperta il margine per la barretta in basso dell'iPhone non serve.
+      document.documentElement.classList.toggle('kb-open', typing() && h < full - 150);
       if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
     };
     vv.addEventListener('resize', fit);
     vv.addEventListener('scroll', fit);
+    document.addEventListener('focusout', () => setTimeout(fit, 50));
+    window.addEventListener('orientationchange', () => setTimeout(fit, 300));
     fit();
   }
   document.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
@@ -210,7 +222,7 @@
     const btn = $('#otp-send');
     btn.disabled = true;
     try {
-      await api('POST', '/api/login/send-code', { email: $('#email').value.trim() });
+      await api('POST', '/api/login/send-code', { email: $('#email').value.trim(), firstName: (pending && pending.firstName) || $('#first-name').value.trim() });
       toast('Code sent: check your email 📬');
       setTimeout(() => { btn.disabled = false; }, 60_000);
       return true;
