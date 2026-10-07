@@ -24,8 +24,12 @@ const extraCss = `
   background: var(--ink); color: #fff; font-size: 12px; padding: 6px 12px; border-radius: 999px; text-align: center; pointer-events: none; opacity: .92; }
 #login.hidden ~ .demo-banner { display: none; }
 `;
-// Nell'anteprima non ci sono manifest e icona: tolgo i riferimenti.
-const html = `<title>${title}</title>
+// Le immagini vengono incorporate come data URI: l'anteprima è un unico file.
+const dataUri = (file, type) => `data:${type};base64,${fs.readFileSync(path.join(root, 'public', file)).toString('base64')}`;
+const IMAGES = { '/wordmark.png': dataUri('wordmark.png', 'image/png'), '/waves.jpg': dataUri('waves.jpg', 'image/jpeg') };
+const inlineImages = (text) => text.replace(/\/(wordmark\.png|waves\.jpg)/g, (m) => IMAGES[m]);
+
+let html = `<title>${title}</title>
 <style>
 ${read('public/style.css')}
 ${extraCss}
@@ -39,6 +43,7 @@ ${read('demo/demo.js')}
 ${read('public/app.js')}
 </script>
 `;
+html = inlineImages(html);
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, html);
 console.log('Anteprima scritta in ' + out);

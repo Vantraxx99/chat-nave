@@ -183,7 +183,13 @@
         $('#offline').classList.add('hidden');
         delay = 0;
         state.cursor = Math.max(state.cursor, data.cursor);
-        if (data.messages.length) handleIncoming(data.messages);
+        if (data.messages.length) {
+          handleIncoming(data.messages);
+          // Breve pausa prima della prossima richiesta: i messaggi arrivati nel frattempo
+          // arrivano tutti insieme. Con migliaia di persone online dimezza il carico
+          // del server e risparmia banda satellitare.
+          await new Promise((r) => setTimeout(r, 1000));
+        }
       } catch (err) {
         if (err.status === 401 || err.status === 403) { state.me = null; return initLogin(); }
         $('#offline').classList.remove('hidden');

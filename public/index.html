@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-  <meta name="theme-color" content="#FF4758">
+  <meta name="theme-color" content="#286AD8">
   <title>Global Reunion · Cruise Edition</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -14,8 +14,7 @@
   <section id="login" class="screen hidden">
     <div class="login-wrap">
       <div class="brand">
-        <div class="brand-title">Global Reunion</div>
-        <div class="brand-pill">🚢 Cruise Edition</div>
+        <img class="brand-logo" src="/wordmark.png" alt="WeRoad Global Reunion, Cruise Edition" width="582" height="180">
         <p class="brand-sub">La chat riservata ai partecipanti</p>
       </div>
       <div class="login-card">
@@ -50,23 +49,26 @@
   <section id="app" class="screen hidden">
     <aside id="sidebar">
       <header class="bar">
-        <div class="bar-brand">Global Reunion<small>🚢 Cruise Edition</small></div>
+        <img class="bar-logo" src="/wordmark.png" alt="Global Reunion, Cruise Edition" width="582" height="180">
         <div class="bar-actions">
           <span id="me-avatar" class="avatar"></span>
           <button id="btn-new" class="icon" title="Nuova chat" aria-label="Nuova chat">✎</button>
           <button id="btn-menu" class="icon" title="Menu" aria-label="Menu">⋮</button>
         </div>
       </header>
+      <div class="waves-strip" aria-hidden="true"></div>
       <div id="offline" class="offline hidden">Connessione assente, riprovo…</div>
       <div class="search"><input id="conv-filter" type="search" placeholder="Cerca chat"></div>
       <ul id="conv-list" class="list"></ul>
     </aside>
 
     <main id="chat">
-      <div id="chat-empty" class="chat-empty">
-        <div class="brand-title dark">Global Reunion</div>
-        <div class="brand-pill">🚢 Cruise Edition</div>
+      <div id="chat-empty" class="chat-empty-wrap">
+       <div class="chat-empty">
+        <img class="empty-logo" src="/wordmark.png" alt="Global Reunion, Cruise Edition" width="582" height="180">
         <p>Scegli una chat o iniziane una nuova con ✎</p>
+       </div>
+       <div class="waves-band" aria-hidden="true"></div>
       </div>
       <div id="chat-view" class="hidden">
         <header class="bar">

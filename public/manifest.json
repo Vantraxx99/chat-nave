@@ -3,7 +3,7 @@
   "short_name": "Global Reunion",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#FF4758",
-  "theme_color": "#FF4758",
+  "background_color": "#286AD8",
+  "theme_color": "#286AD8",
   "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
 }

@@ -83,6 +83,13 @@ const q = {
       AND (c.type IN ('public','announce')
            OR EXISTS (SELECT 1 FROM members WHERE conversation_id = c.id AND user_id = ?))
     ORDER BY m.seq LIMIT 300`),
+  sincePublic: db.prepare(`
+    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq
+    FROM messages m
+    JOIN users u ON u.id = m.user_id
+    JOIN conversations c ON c.id = m.conversation_id
+    WHERE m.seq > ? AND c.type IN ('public','announce')
+    ORDER BY m.seq LIMIT 300`),
   stats: db.prepare(`SELECT (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM messages) AS messages, (SELECT COUNT(*) FROM conversations) AS conversations`),
 };
 
@@ -145,9 +152,19 @@ function flush() {
   const users = new Set(pendingUsers);
   pendingAll = false;
   pendingUsers.clear();
-  for (const w of waiters) {
-    if (!all && !users.has(w.userId)) continue;
-    const rows = q.since.all(w.since, w.userId);
+  // Chi non ha novità private riceve solo i messaggi pubblici: la query si fa una
+  // volta per ogni cursore (di solito quasi tutti sono allo stesso punto) e non
+  // una volta per persona. Con 3000 persone collegate fa una grande differenza.
+  const publicByCursor = new Map();
+  for (const w of [...waiters]) {
+    let rows;
+    if (users.has(w.userId)) rows = q.since.all(w.since, w.userId);
+    else if (all) {
+      let shared = publicByCursor.get(w.since);
+      if (!shared) { shared = { rows: q.sincePublic.all(w.since) }; publicByCursor.set(w.since, shared); }
+      if (shared.rows.length) w.respond(shared.rows, shared);
+      continue;
+    } else continue;
     if (rows.length) w.respond(rows);
   }
 }
@@ -214,6 +231,21 @@ function send(req, res, status, body, headers = {}) {
   }
   headers['Content-Length'] = Buffer.byteLength(data);
   res.writeHead(status, headers);
+  res.end(data);
+}
+
+// Invia un JSON già serializzato, comprimendolo una volta sola per tutti.
+function sendEncoded(req, res, shared) {
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+  let data = shared.json;
+  if (data.length > 512 && /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) {
+    if (!shared.gz) shared.gz = zlib.gzipSync(data);
+    data = shared.gz;
+    headers['Content-Encoding'] = 'gzip';
+    headers['Vary'] = 'Accept-Encoding';
+  }
+  headers['Content-Length'] = data.length;
+  res.writeHead(200, headers);
   res.end(data);
 }
 
@@ -480,10 +512,14 @@ route('GET', '/api/poll', async (req, res, params, url) => {
     const w = {
       userId: user.id,
       since,
-      respond(list) {
+      respond(list, shared) {
         if (!waiters.delete(w)) return;
         clearTimeout(w.timer);
-        resolve(reply(list));
+        if (!shared) return resolve(reply(list));
+        // Risposta già serializzata e compressa, condivisa con chi era allo stesso punto.
+        if (!shared.json) shared.json = Buffer.from(JSON.stringify(reply(list)));
+        sendEncoded(req, res, shared);
+        resolve();
       },
     };
     w.timer = setTimeout(() => w.respond([]), POLL_TIMEOUT_MS);
@@ -532,8 +568,11 @@ route('GET', '/healthz', async () => ({ ok: true }));
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/manifest+json',
-  '.png': 'image/png', '.ico': 'image/x-icon',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.ico': 'image/x-icon',
 };
+// Le immagini cambiano di rado: i telefoni le tengono in cache una settimana,
+// così via satellite si scaricano una volta sola.
+const LONG_CACHE = new Set(['.png', '.jpg', '.svg']);
 const staticCache = new Map();
 function loadStatic(rel) {
   if (staticCache.has(rel)) return staticCache.get(rel);
@@ -545,6 +584,8 @@ function loadStatic(rel) {
     raw,
     gz: zlib.gzipSync(raw, { level: 9 }),
     type: MIME[path.extname(file)] || 'application/octet-stream',
+    cache: LONG_CACHE.has(path.extname(file)) ? 'public, max-age=604800' : 'no-cache',
+    compress: !['.png', '.jpg'].includes(path.extname(file)),
     etag: '"' + crypto.createHash('sha1').update(raw).digest('base64url').slice(0, 16) + '"',
   };
   if (process.env.NODE_ENV === 'production') staticCache.set(rel, entry);
@@ -556,9 +597,9 @@ function serveStatic(req, res, pathname) {
   if (rel === '/' || !path.extname(rel)) rel = '/index.html';
   const entry = loadStatic(rel.replace(/^\/+/, ''));
   if (!entry) return send(req, res, 404, { error: 'Non trovato' });
-  const headers = { 'Content-Type': entry.type, ETag: entry.etag, 'Cache-Control': 'no-cache', Vary: 'Accept-Encoding' };
+  const headers = { 'Content-Type': entry.type, ETag: entry.etag, 'Cache-Control': entry.cache, Vary: 'Accept-Encoding' };
   if (req.headers['if-none-match'] === entry.etag) { res.writeHead(304, headers); return res.end(); }
-  const gzip = /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''));
+  const gzip = entry.compress && /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''));
   const body = gzip ? entry.gz : entry.raw;
   if (gzip) headers['Content-Encoding'] = 'gzip';
   headers['Content-Length'] = body.length;

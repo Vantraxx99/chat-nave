@@ -1,5 +1,5 @@
 # Deploy su Render (https://render.com): New → Blueprint → scegli questo repository.
-# Il piano free va bene per le prove; per l'evento usate un piano a pagamento con disco
+# Il piano free va bene per le prove; per l'evento usate il piano Standard con disco
 # persistente (vedi README), altrimenti i messaggi si perdono a ogni riavvio.
 services:
   - type: web

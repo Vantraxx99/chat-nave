@@ -1,4 +1,4 @@
-# 🚢 Global Reunion · Cruise Edition
+# 🚢 WeRoad Global Reunion · Cruise Edition
 
 La chat privata, in stile WhatsApp, per i ~2000 partecipanti della Global Reunion in nave.
 È un sito web: non c'è nessuna app da installare. Funziona da qualsiasi telefono
@@ -13,7 +13,7 @@ sbloccato** dalla nave.
 - **Chat private 1 a 1**: si cerca una persona per nome tra i partecipanti. Le email non sono mai visibili agli altri.
 - **Gruppi**: per esempio "Cabina 512" o "Gita Mykonos". Si possono aggiungere persone e uscire dal gruppo.
 - Messaggi non letti, separatori per giorno e il conteggio nel titolo della scheda.
-- Colori in stile WeRoad, tema chiaro e scuro, telefono e computer. Si può aggiungere alla schermata Home.
+- Grafica dell'evento (logo, onde e colori della Global Reunion), tema chiaro e scuro, telefono e computer. Si può aggiungere alla schermata Home.
 - **Moderazione**: gli organizzatori possono cancellare messaggi, sospendere utenti e creare nuovi canali.
 
 ## Perché è fatto così (connessione della nave)
@@ -22,11 +22,36 @@ sbloccato** dalla nave.
 |---|---|
 | La nave sblocca solo gli URL richiesti | **Tutto** è servito dallo stesso dominio: niente CDN, Google Fonts o analytics. Basta far sbloccare un solo dominio (es. `chat.tuoevento.it`). |
 | I proxy delle navi spesso bloccano i WebSocket | Il tempo reale usa il **long-polling HTTP** su HTTPS standard: richieste da massimo 25 secondi, sotto i timeout tipici dei proxy. |
-| La banda satellitare è poca e condivisa da 2000 persone | Solo testo ed emoji (niente foto né video), risposte compresse con gzip. La pagina intera pesa circa 12 KB. |
+| La banda satellitare è poca e condivisa da migliaia di persone | Solo testo ed emoji (niente foto né video), risposte compresse con gzip. Il codice pesa circa 12 KB, le immagini circa 60 KB e restano in cache sul telefono per una settimana. |
 | Tutti escono dallo stesso IP della nave | I limiti anti-abuso contano solo i tentativi sbagliati, non gli accessi corretti. |
 
-Prova di carico fatta: **2000 utenti collegati insieme**, 30 messaggi nel canale
-generale, **60.000 consegne su 60.000**, latenza mediana circa 0,2 s, circa 170 MB di RAM.
+Prova di carico fatta: **3000 utenti collegati insieme**, 120 messaggi nel canale
+generale a 10 messaggi al secondo: **360.000 consegne su 360.000**, consegna entro
+1 secondo, circa 40% di un core e 140 MB di RAM.
+
+## Costi e capacità
+
+Il carico del server dipende quasi solo da quante persone sono collegate, non da
+quanto scrivono. Dopo aver ricevuto messaggi il telefono aspetta un secondo prima
+di chiedere i successivi, così i messaggi arrivati in quel secondo arrivano in
+un'unica risposta.
+
+| Piano Render | Prezzo | Risorse | Per 2000–3000 persone |
+|---|---|---|---|
+| Free | 0 $ | 512 MB, 0,1 CPU | Solo prove: si addormenta e perde i messaggi |
+| Starter | 7 $/mese | 512 MB, 0,5 CPU | Prove con decine di persone; al limite con tutti online |
+| **Standard** | **25 $/mese** | **2 GB, 1 CPU** | **Consigliato per l'evento**, con buon margine |
+
+In più servono:
+- **Disco persistente**: 0,25 $ per GB al mese. 1 GB basta e avanza.
+- **Traffico**: si pagano 0,15 $ per GB oltre la quota inclusa. Per un evento di qualche giorno si stimano 10–25 GB, quindi pochi dollari.
+
+I piani si pagano al secondo: se tenete il servizio acceso solo per le settimane
+dell'evento, pagate solo quelle. Prezzi aggiornati a ottobre 2026: verificateli su
+render.com/pricing.
+
+Il vero collo di bottiglia sarà quasi certamente la connessione satellitare della
+nave, non il server.
 
 ## Chi può entrare
 
@@ -103,7 +128,7 @@ Limiti del piano **free**:
 - Se il sito resta inutilizzato per 15 minuti, si addormenta e la prima apertura successiva impiega circa un minuto.
 - **I messaggi si cancellano a ogni riavvio.**
 
-Per l'evento passate a un piano a pagamento (Starter) e aggiungete un **Disk**
+Per l'evento passate al piano Standard (1 CPU, 2 GB) e aggiungete un **Disk**
 montato su `/opt/render/project/src/data`. Collegate anche il vostro dominio dalle
 impostazioni del servizio.
 
