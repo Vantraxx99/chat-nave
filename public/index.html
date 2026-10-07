@@ -103,6 +103,13 @@
               <button type="button" class="pw-eye" aria-label="Show password" data-for="password2">👁️</button>
             </div>
           </div>
+          <div id="f-code" class="field hidden">
+            <label for="otp">Verification code</label>
+            <div class="email-row">
+              <input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 digits">
+              <button type="button" id="otp-send" class="link-btn">Email me a code</button>
+            </div>
+          </div>
           <div id="join-code-field" class="field hidden">
             <label for="join-code">Event code</label>
             <input id="join-code" autocapitalize="characters" spellcheck="false" maxlength="20">

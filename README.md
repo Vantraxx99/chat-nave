@@ -97,6 +97,25 @@ profilo della persona → **Reset password**; al prossimo accesso la persona ne 
 una nuova confermando il cognome. Resta una chat per un evento: non usatela per
 informazioni riservate.
 
+### Codice di verifica via email
+
+Con l'invio email attivo, alla prima registrazione arriva un codice di 6 cifre
+all'indirizzo indicato: l'account nasce solo dopo averlo inserito, quindi nessuno può
+registrarsi con l'email di un altro. Conviene far iscrivere tutti **prima di salire a
+bordo**, quando hanno ancora internet.
+
+Serve un servizio di invio email; su Render (Environment) impostate:
+
+- `BREVO_API_KEY` (Brevo) **oppure** `RESEND_API_KEY` (Resend)
+- `MAIL_FROM`, il mittente, es. `Global Reunion <chat@vostrodominio.it>`: deve essere un
+  indirizzo/dominio verificato sul servizio scelto.
+
+Senza queste variabili il codice non viene chiesto (comodo per le prove).
+A bordo, se qualcuno dimentica la password, un organizzatore apre il suo profilo →
+**Reset password** e riceve un codice da dargli a voce (vale 48 ore): con quello la
+persona sceglie una nuova password anche senza email.
+Un codice vale 15 minuti e 5 tentativi; se ne può chiedere uno al minuto, 5 all'ora.
+
 ### Importare la lista partecipanti
 
 CSV con le colonne `email` e `nome` (oppure `nome` e `cognome`). La colonna

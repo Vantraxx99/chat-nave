@@ -142,6 +142,9 @@ input, textarea { font: inherit; color: inherit; }
   position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: transparent;
   color: var(--link); font-weight: 800; font-size: 14px; padding: 8px 10px; border-radius: 10px; cursor: pointer;
 }
+#otp { font-size: 22px; letter-spacing: 6px; font-weight: 800; font-variant-numeric: tabular-nums; padding-right: 150px; }
+#otp::placeholder { font-size: 16px; letter-spacing: 0; font-weight: 400; }
+.link-btn:disabled { color: var(--muted); cursor: default; }
 .pw-wrap { position: relative; }
 .login-card .pw-wrap input, .pw-wrap input { padding-right: 48px; }
 .pw-eye {
@@ -791,3 +794,7 @@ button.avatar { border: 0; padding: 0; cursor: pointer; font-family: inherit; }
 }
 
 
+.reset-code {
+  align-self: center; margin: 4px 0; padding: 12px 22px; border-radius: 16px; background: var(--lime); color: #07253D;
+  font-size: 34px; font-weight: 900; letter-spacing: 8px; font-variant-numeric: tabular-nums; user-select: all; -webkit-user-select: all;
+}

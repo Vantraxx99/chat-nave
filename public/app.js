@@ -163,34 +163,65 @@
   //  password (account esistente) · new (prima volta: nome, cognome e password)
   //  setup (account di prima delle password: cognome + nuova password)
   let loginStep = 'email';
+  let codeRequired = false;   // il server manda un codice per email prima di creare l'account
+  let pending = null;          // dati della registrazione in attesa del codice
   const LOGIN_STEPS = {
     email: { title: 'Sign in or join', button: 'Continue', hint: 'New here? You\'ll create your account in a moment. Already joined? You\'ll just need your password.' },
-    password: { title: 'Welcome back!', button: 'Sign in', hint: 'Forgot your password? Ask an organiser to reset it, then sign in again to choose a new one.' },
+    password: { title: 'Welcome back!', button: 'Sign in', hint: 'Forgot your password? Ask an organiser to reset it: they\'ll give you a code to choose a new one.' },
     new: { title: 'Create your account', button: 'Join the chat', hint: 'Choose a password you\'ll remember: you\'ll need it to sign in on another phone, and nobody else can write as you.' },
+    newCode: { title: 'Create your account', button: 'Send me the code', hint: 'We\'ll email you a 6-digit code to confirm it\'s really you. Then you\'ll sign in with your email and password.' },
+    verify: { title: 'Check your email', button: 'Join the chat', hint: '' },
     setup: { title: 'Secure your account', button: 'Save & sign in', hint: 'Chats now have passwords, so nobody can write pretending to be you. Confirm your last name and choose one.' },
+    setupCode: { title: 'Choose a new password', button: 'Save & sign in', hint: 'Enter the code an organiser gave you, or tap “Email me a code”.' },
   };
   function setLoginStep(step) {
     loginStep = step;
-    const cfg = LOGIN_STEPS[step];
+    const key = codeRequired && step === 'new' ? 'newCode' : codeRequired && step === 'setup' ? 'setupCode' : step;
+    const cfg = LOGIN_STEPS[key];
     $('#login-title').textContent = cfg.title;
     $('#login-submit').textContent = cfg.button;
-    $('#login-hint').textContent = cfg.hint;
+    $('#login-hint').textContent = step === 'verify'
+      ? `We sent a 6-digit code to ${pending.email}. It can take a minute: check your spam folder too.` : cfg.hint;
     $('#login-error').textContent = '';
     const email = $('#email');
     email.readOnly = step !== 'email';
     $('#email-change').classList.toggle('hidden', step === 'email');
-    $('#f-names').classList.toggle('hidden', step !== 'new' && step !== 'setup');
+    const names = step === 'new' || (step === 'setup' && !codeRequired);
+    $('#f-names').classList.toggle('hidden', !names);
     $('#f-first').classList.toggle('hidden', step !== 'new');
-    $('#f-password').classList.toggle('hidden', step === 'email');
+    $('#f-password').classList.toggle('hidden', step === 'email' || step === 'verify');
     $('#f-password2').classList.toggle('hidden', step !== 'new' && step !== 'setup');
+    $('#f-code').classList.toggle('hidden', !(step === 'verify' || (step === 'setup' && codeRequired)));
+    $('#otp-send').textContent = step === 'verify' ? 'Resend code' : 'Email me a code';
+    $('#otp').value = '';
     $('#join-code-field').classList.toggle('hidden', step !== 'new' || !initLogin.joinCode);
     const pw = $('#password');
-    pw.value = ''; $('#password2').value = '';
+    if (step !== 'verify') { pw.value = ''; $('#password2').value = ''; }
     pw.autocomplete = step === 'password' ? 'current-password' : 'new-password';
     $('#password-label').textContent = step === 'password' ? 'Password' : 'Choose a password (min. 6 characters)';
-    const focus = { email: email, password: pw, new: $('#first-name').value ? pw : $('#first-name'), setup: $('#last-name').value ? pw : $('#last-name') }[step];
+    const focus = {
+      email, password: pw, verify: $('#otp'),
+      new: $('#first-name').value ? pw : $('#first-name'),
+      setup: codeRequired ? pw : $('#last-name').value ? pw : $('#last-name'),
+    }[step];
     setTimeout(() => focus.focus(), 30);
   }
+  async function sendCode() {
+    const btn = $('#otp-send');
+    btn.disabled = true;
+    try {
+      await api('POST', '/api/login/send-code', { email: $('#email').value.trim() });
+      toast('Code sent: check your email 📬');
+      setTimeout(() => { btn.disabled = false; }, 60_000);
+      return true;
+    } catch (e) {
+      $('#login-error').textContent = e.message;
+      btn.disabled = false;
+      return false;
+    }
+  }
+  $('#otp-send').addEventListener('click', sendCode);
+  $('#otp').addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6); });
   $('#email-change').addEventListener('click', () => setLoginStep('email'));
   for (const eye of document.querySelectorAll('.pw-eye')) {
     eye.addEventListener('click', () => {
@@ -229,11 +260,12 @@
     btn.disabled = true;
     try {
       if (loginStep === 'email') {
-        const { step } = await api('POST', '/api/login/check', { email });
-        if (step === 'not-allowed') return err('This email is not on the Global Reunion participant list. Use the one you booked the trip with, or ask an organiser to allow it.');
-        return setLoginStep(step);
+        const res = await api('POST', '/api/login/check', { email });
+        if (res.step === 'not-allowed') return err('This email is not on the Global Reunion participant list. Use the one you booked the trip with, or ask an organiser to allow it.');
+        codeRequired = !!res.codeRequired;
+        return setLoginStep(res.step);
       }
-      const data = {
+      const data = loginStep === 'verify' ? { ...pending } : {
         email,
         password: $('#password').value,
         firstName: $('#first-name').value.trim(),
@@ -241,13 +273,24 @@
         joinCode: $('#join-code').value,
       };
       if (loginStep === 'new' && (!data.firstName || !data.lastName)) return err('Please enter your first and last name');
-      if (loginStep === 'setup' && !data.lastName) return err('Please enter your last name');
+      if (loginStep === 'setup' && !codeRequired && !data.lastName) return err('Please enter your last name');
       if (!data.password) return err('Please enter your password');
-      if (loginStep !== 'password') {
+      if (loginStep === 'new' || loginStep === 'setup') {
         if (data.password.length < 6) return err('Choose a password of at least 6 characters');
         if (data.password !== $('#password2').value) return err('The two passwords don\'t match');
       }
+      if (loginStep === 'new' && codeRequired) {
+        // Prima il codice via email, poi l'account.
+        pending = data;
+        if (await sendCode()) setLoginStep('verify');
+        return;
+      }
+      if (loginStep === 'verify' || (loginStep === 'setup' && codeRequired)) {
+        data.code = $('#otp').value;
+        if (data.code.length !== 6) return err('Enter the 6-digit code');
+      }
       await api('POST', '/api/register', data);
+      pending = null;
       try { localStorage.setItem('gr-login', JSON.stringify({ firstName: data.firstName, lastName: data.lastName, email })); } catch {}
       $('#password').value = ''; $('#password2').value = '';
       start();
@@ -1659,8 +1702,13 @@
         if (state.me.isAdmin) {
           body.append(menuButton('🔑  Reset password (organisers)', async () => {
             if (!await askConfirm(`Reset ${user.name}'s password? They will be signed out and will choose a new one by confirming their last name.`, 'Reset')) return;
-            try { await api('POST', '/api/admin/reset-password', { userId }); toast('Password reset'); closeModal(); }
-            catch (err) { toast(err.message); }
+            let res;
+            try { res = await api('POST', '/api/admin/reset-password', { userId }); } catch (err) { return toast(err.message); }
+            openModal('Password reset', (b) => {
+              b.append(el('p', null, `Give ${user.name.split(' ')[0]} this code. At the next sign-in they enter it and choose a new password (valid 48 hours):`));
+              b.append(el('p', 'reset-code', res.code));
+              b.append(el('p', 'muted small center', 'They can also get a new code by email, if email works where they are.'));
+            });
           }));
         }
         if (state.me.isAdmin && !user.isAdmin) {

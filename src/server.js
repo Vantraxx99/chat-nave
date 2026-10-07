@@ -8,6 +8,7 @@ const { db } = require('./db');
 const { normalizeEmail, isValidEmail, cleanName, surnameMatches } = require('./identity');
 const { hashEmail, loadHashes } = require('./allowlist');
 const push = require('./push');
+const mail = require('./mail');
 
 const PORT = Number(process.env.PORT) || 3000;
 const normalizeCode = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -46,6 +47,15 @@ const q = {
   userProfile: db.prepare(`SELECT id, name, is_admin, profile FROM users WHERE id = ?`),
   userEmail: db.prepare(`SELECT email FROM users WHERE id = ?`),
   passwordHash: db.prepare(`SELECT password_hash FROM users WHERE id = ?`),
+  getCode: db.prepare(`SELECT * FROM codes WHERE email = ? AND kind = ?`),
+  codesFor: db.prepare(`SELECT * FROM codes WHERE email = ?`),
+  saveCode: db.prepare(`
+    INSERT INTO codes (email, kind, code_hash, expires_at, attempts, sent_at, sends) VALUES (?, ?, ?, ?, 0, ?, ?)
+    ON CONFLICT(email, kind) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at,
+      attempts = 0, sent_at = excluded.sent_at, sends = excluded.sends`),
+  codeAttempt: db.prepare(`UPDATE codes SET attempts = attempts + 1 WHERE email = ? AND kind = ?`),
+  deleteCodes: db.prepare(`DELETE FROM codes WHERE email = ?`),
+  deleteCode: db.prepare(`DELETE FROM codes WHERE email = ? AND kind = ?`),
   insertUser: db.prepare(`INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)`),
   sessionUser: db.prepare(`SELECT u.id, u.name, u.is_admin, u.banned, u.password_hash IS NOT NULL AS has_password FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`),
   setPassword: db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`),
@@ -462,6 +472,56 @@ function pwFailed(email) {
   f.n++;
 }
 
+// --- Codici di verifica ---------------------------------------------------------
+const CODE_TTL = 15 * 60_000;           // codice via email
+const STAFF_CODE_TTL = 48 * 3600_000;   // codice dato a voce da un organizzatore
+const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
+const newCode = () => String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+
+function storeCode(email, kind, ttl, sends = 1) {
+  const code = newCode();
+  q.saveCode.run(email, kind, sha(`${email}:${code}`), Date.now() + ttl, Date.now(), sends);
+  return code;
+}
+// true se il codice (quello dell'email o quello dello staff) è giusto: li consuma tutti.
+// Max 5 tentativi per codice.
+function useCode(email, code) {
+  const given = String(code || '').replace(/\D/g, '');
+  if (given.length !== 6) return false;
+  const hash = Buffer.from(sha(`${email}:${given}`));
+  for (const row of q.codesFor.all(email)) {
+    if (row.expires_at < Date.now() || row.attempts >= 5) continue;
+    if (crypto.timingSafeEqual(hash, Buffer.from(row.code_hash))) { q.deleteCodes.run(email); return true; }
+    q.codeAttempt.run(email, row.kind);
+  }
+  return false;
+}
+
+// Manda il codice per email (registrazione o nuova password). Al massimo uno al minuto e
+// cinque all'ora per indirizzo.
+route('POST', '/api/login/send-code', async (req) => {
+  checkLoginAllowed(req);
+  if (!mail.enabled) throw new HttpError(400, 'Email codes are not active');
+  const body = await readJson(req);
+  const email = normalizeEmail(body.email);
+  if (!isValidEmail(email)) throw new HttpError(400, 'Invalid email');
+  const user = q.userByEmail.get(email);
+  if (user && user.password_hash) throw new HttpError(400, 'This account already has a password: sign in with it');
+  if (!user && LIST_ONLY && !isAllowedEmail(email)) throw loginFailed(req, 403, 'This email is not on the Global Reunion participant list');
+  const prev = q.getCode.get(email, 'email');
+  const now = Date.now();
+  if (prev && now - prev.sent_at < 60_000) throw new HttpError(429, 'We just sent you a code: wait a minute before asking for a new one');
+  const sends = prev && now - prev.sent_at < 3600_000 ? prev.sends + 1 : 1;
+  if (sends > 5) throw new HttpError(429, 'Too many codes requested: try again in an hour');
+  const code = storeCode(email, 'email', CODE_TTL, sends);
+  try { await mail.sendCode(email, code); } catch (err) {
+    console.error('Invio email fallito:', err.message);
+    q.deleteCode.run(email, 'email');
+    throw new HttpError(502, 'We couldn\'t send the email right now, please try again in a moment');
+  }
+  return { ok: true };
+});
+
 // Primo passo dell'accesso: con questa email cosa serve?
 //  password → account con password · setup → account vecchio senza password (cognome + nuova password)
 //  new → prima volta (nome, cognome, password) · not-allowed → non è nell'elenco partecipanti
@@ -471,9 +531,10 @@ route('POST', '/api/login/check', async (req) => {
   const email = normalizeEmail(body.email);
   if (!isValidEmail(email)) throw new HttpError(400, 'Invalid email');
   const user = q.userByEmail.get(email);
-  if (user) return { step: user.password_hash ? 'password' : 'setup' };
-  if (LIST_ONLY && !isAllowedEmail(email)) return { step: 'not-allowed' };
-  return { step: 'new' };
+  if (user && user.password_hash) return { step: 'password' };
+  if (!user && LIST_ONLY && !isAllowedEmail(email)) return { step: 'not-allowed' };
+  // codeRequired: prima di creare l'account (o la nuova password) arriva un codice per email.
+  return { step: user ? 'setup' : 'new', codeRequired: mail.enabled };
 });
 
 // Accesso e registrazione insieme.
@@ -495,12 +556,19 @@ route('POST', '/api/register', async (req) => {
       throw loginFailed(req, 401, 'Wrong password');
     }
   } else if (user) {
-    const lastName = cleanName(body.lastName);
-    if (!lastName) throw new HttpError(400, 'Please enter your last name');
-    if (!surnameMatches(user.name, lastName)) {
-      throw loginFailed(req, 401, 'This email is registered with a different last name');
+    // Nuova password: serve il codice (email, oppure quello dato da un organizzatore). Senza
+    // invio email attivo basta anche il cognome giusto.
+    const newPassword = checkNewPassword(password);
+    if (body.code) {
+      if (!useCode(email, body.code)) throw loginFailed(req, 401, 'Wrong or expired code');
+    } else if (mail.enabled) {
+      throw new HttpError(400, 'Enter the code we sent to your email');
+    } else {
+      const lastName = cleanName(body.lastName);
+      if (!lastName) throw new HttpError(400, 'Please enter your last name');
+      if (!surnameMatches(user.name, lastName)) throw loginFailed(req, 401, 'This email is registered with a different last name');
     }
-    q.setPassword.run(await hashPassword(checkNewPassword(password)), user.id);
+    q.setPassword.run(await hashPassword(newPassword), user.id);
   } else {
     const firstName = cleanName(body.firstName);
     const lastName = cleanName(body.lastName);
@@ -509,7 +577,13 @@ route('POST', '/api/register', async (req) => {
       throw loginFailed(req, 403, 'This email is not on the Global Reunion participant list. Use the one you booked the trip with, or ask an organiser to allow it.');
     }
     if (JOIN_CODE && normalizeCode(body.joinCode) !== JOIN_CODE) throw loginFailed(req, 401, 'Invalid event code');
-    const hash = await hashPassword(checkNewPassword(password));
+    const newPassword = checkNewPassword(password);
+    // L'account nasce solo con il codice arrivato a quella email: così è davvero di chi la usa.
+    if (mail.enabled) {
+      if (!body.code) throw new HttpError(400, 'Enter the code we sent to your email');
+      if (!useCode(email, body.code)) throw loginFailed(req, 401, 'Wrong or expired code');
+    }
+    const hash = await hashPassword(newPassword);
     // Due richieste insieme per la stessa email: vince la prima.
     if (q.userByEmail.get(email)) throw new HttpError(409, 'This email has just been registered: sign in with its password');
     const name = cleanName(`${firstName} ${lastName}`);
@@ -895,18 +969,20 @@ route('POST', '/api/admin/ban', async (req) => {
   return { ok: true };
 });
 
-// Password dimenticata: un organizzatore la azzera e la persona viene disconnessa. Al prossimo
-// accesso ne sceglie una nuova confermando il cognome.
+// Password dimenticata: un organizzatore la azzera e la persona viene disconnessa. Riceve un
+// codice da dare alla persona, che al prossimo accesso lo inserisce e sceglie una nuova password.
 route('POST', '/api/admin/reset-password', async (req) => {
   const user = auth(req);
   requireAdmin(user);
   const body = await readJson(req);
   const target = q.userById.get(Number(body.userId));
   if (!target) throw new HttpError(404, 'User not found');
+  const email = q.userEmail.get(target.id).email;
   q.setPassword.run(null, target.id);
   q.deleteUserSessions.run(target.id);
-  pwFailures.delete(q.userEmail.get(target.id).email);
-  return { ok: true };
+  pwFailures.delete(email);
+  // A bordo l'email potrebbe non arrivare: l'organizzatore dà questo codice a voce.
+  return { ok: true, code: storeCode(email, 'staff', STAFF_CODE_TTL) };
 });
 
 // Abilita un'email che non è nell'elenco (es. iscritto con un indirizzo diverso).

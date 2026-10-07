@@ -16,3 +16,10 @@ services:
         value: production
       - key: ADMIN_EMAILS
         sync: false
+      # Codice di verifica via email alla registrazione (vedi README): una delle due chiavi + mittente
+      - key: BREVO_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false

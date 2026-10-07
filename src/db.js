@@ -122,6 +122,21 @@ if (!db.prepare(`PRAGMA table_info(users)`).all().some((c) => c.name === 'passwo
   db.exec(`ALTER TABLE users ADD COLUMN password_hash TEXT`);
 }
 
+// Codici di verifica (OTP) mandati per email alla registrazione, oppure dati a voce da un
+// organizzatore dopo un reset della password. Salviamo solo l'hash del codice.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS codes (
+    email      TEXT NOT NULL,
+    kind       TEXT NOT NULL,           -- 'email' | 'staff': restano validi entrambi
+    code_hash  TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    sent_at    INTEGER NOT NULL,
+    sends      INTEGER NOT NULL DEFAULT 1, -- invii nell'ultima ora
+    PRIMARY KEY (email, kind)
+  );
+`);
+
 // Unico canale di default: gli Annunci degli organizzatori. Per il resto i
 // partecipanti si creano i loro gruppi.
 function ensureDefaultChannels() {
