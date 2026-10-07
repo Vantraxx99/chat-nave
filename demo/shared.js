@@ -41,6 +41,11 @@
     poll: (since) => backend().then((s) => s.poll(since)),
   };
 
+  async function sha256(text) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
   // --------------------------------------------------------------------------
   async function createShared(db, uid) {
     const users = new Map();   // num -> { n, uid, name, email, isAdmin }
@@ -89,7 +94,7 @@
     }
     watch(db.collection('users'), (type, d, id) => {
       if (type === 'removed' || !d) return;
-      users.set(d.n, { n: d.n, uid: id, name: d.name, email: d.email, isAdmin: !!d.isAdmin, profile: d.profile || {} });
+      users.set(d.n, { n: d.n, uid: id, name: d.name, email: d.email, isAdmin: !!d.isAdmin, profile: d.profile || {}, pw: d.pw || null });
     });
     watch(db.collection('convs'), (type, d) => {
       if (!d) return;
@@ -181,17 +186,34 @@
       const p = u.pathname;
       let m;
       if (method === 'GET' && p === '/api/config') return { joinCodeRequired: false };
+      // Nell'anteprima condivisa l'identità è il proprio account claude.ai; la password è
+      // comunque chiesta (hash salvato nel proprio documento) per provare il flusso vero.
+      if (method === 'POST' && p === '/api/login/check') {
+        const email = String(body.email || '').trim().toLowerCase();
+        const prev = meUser();
+        if (prev && prev.email === email) return { step: prev.pw ? 'password' : 'setup' };
+        if ([...users.values()].some((x) => x.email === email)) throw err(403, 'This email belongs to another person invited to this page');
+        return { step: prev ? 'setup' : 'new' };
+      }
       if (method === 'POST' && p === '/api/register') {
         const first = String(body.firstName || '').trim(), last = String(body.lastName || '').trim();
         const email = String(body.email || '').trim().toLowerCase();
-        if (!first || !last) throw err(400, 'Please enter your first and last name');
+        const password = String(body.password || '');
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw err(400, 'Invalid email');
         const prev = meUser();
         if (prev && bans.has(prev.n)) throw err(403, 'Account suspended');
-        const doc = { profile: (prev && prev.profile) || {}, n: prev ? prev.n : newId(), name: `${first} ${last}`.replace(/\s+/g, ' ').slice(0, 60), email, isAdmin: ORGANIZERS.includes(email), at: Date.now() };
-        try { await db.doc('users/' + uid).set(doc); }
-        catch (e) { throw err(403, 'You don\'t have permission to post on this page: ask to be invited as an Editor.'); }
-        users.set(doc.n, { ...doc, uid });
+        const pwHash = await sha256(uid + ':' + password);
+        if (prev && prev.pw && prev.email === email) {
+          if (prev.pw !== pwHash) throw err(401, 'Wrong password');
+        } else {
+          if (password.length < 6) throw err(400, 'Choose a password of at least 6 characters');
+          const name = prev && prev.email === email ? prev.name : `${first} ${last}`.replace(/\s+/g, ' ').trim().slice(0, 60);
+          if (!prev && (!first || !last)) throw err(400, 'Please enter your first and last name');
+          const doc = { profile: (prev && prev.profile) || {}, n: prev ? prev.n : newId(), name: name || (prev && prev.name), email, isAdmin: ORGANIZERS.includes(email), at: Date.now(), pw: pwHash };
+          try { await db.doc('users/' + uid).set(doc); }
+          catch (e) { throw err(403, 'You don\'t have permission to post on this page: ask to be invited as an Editor.'); }
+          users.set(doc.n, { ...doc, uid });
+        }
         loggedOut = false;
         try { localStorage.removeItem('gr-shared-out'); } catch {}
         return { ok: true };
@@ -205,7 +227,7 @@
         return { ok: true };
       }
       if (method === 'GET' && p === '/api/me') {
-        return { user: { id: self.n, name: self.name, isAdmin: self.isAdmin, profile: self.profile || {} }, cursor: seq, conversations: [...convs.values()].filter(visible).map(summary) };
+        return { user: { id: self.n, name: self.name, isAdmin: self.isAdmin, profile: self.profile || {}, hasPassword: !!self.pw }, cursor: seq, conversations: [...convs.values()].filter(visible).map(summary) };
       }
       if (method === 'GET' && p === '/api/users') {
         const q = (u.searchParams.get('q') || '').toLowerCase();
@@ -301,6 +323,18 @@
         getConv(msg.conversationId);
         return { reactions: [...reacts.values()].filter((r) => r.m === msg.id).sort((a, b) => b.at - a.at)
           .map((r) => ({ emoji: r.e, userId: r.u, name: (users.get(r.u) || {}).name || 'Participant' })) };
+      }
+      if (method === 'PUT' && p === '/api/me/password') {
+        if (self.pw && self.pw !== await sha256(uid + ':' + String(body.current || ''))) throw err(401, 'Your current password is wrong');
+        if (String(body.password || '').length < 6) throw err(400, 'Choose a password of at least 6 characters');
+        const pw = await sha256(uid + ':' + String(body.password));
+        await db.doc('users/' + uid).update({ pw });
+        self.pw = pw;
+        return { ok: true };
+      }
+      if (method === 'POST' && p === '/api/admin/reset-password') {
+        if (!self.isAdmin) throw err(403, 'Organisers only');
+        throw err(400, 'In this shared preview each person signs in with their own claude.ai account: there is nothing to reset.');
       }
       if (method === 'PUT' && p === '/api/me/profile') {
         const profile = window.DEMO_CLEAN_PROFILE(body.profile || {}, err);

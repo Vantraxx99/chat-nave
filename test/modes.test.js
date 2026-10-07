@@ -26,20 +26,20 @@ test('solo i partecipanti in elenco possono registrarsi', async () => {
   const cookieOf = (r) => r.headers.get('set-cookie').split(';')[0];
   try {
     // Non in elenco
-    assert.equal((await post('/api/register', { firstName: 'Ospite', lastName: 'Rossi', email: 'ospite@x.it' })).status, 403);
+    assert.equal((await post('/api/register', { firstName: 'Ospite', lastName: 'Rossi', email: 'ospite@x.it', password: 'secret1' })).status, 403);
     // In elenco (maiuscole e spazi non contano)
-    assert.equal((await post('/api/register', { firstName: 'Lia', lastName: 'Neri', email: ' Lista@X.it ' })).status, 200);
+    assert.equal((await post('/api/register', { firstName: 'Lia', lastName: 'Neri', email: ' Lista@X.it ', password: 'secret1' })).status, 200);
     // Importato da CSV: rientra, con il nome della lista
-    const ok = await post('/api/register', { firstName: 'Anna', lastName: 'Bianchi', email: 'anna@x.it' });
+    const ok = await post('/api/register', { firstName: 'Anna', lastName: 'Bianchi', email: 'anna@x.it', password: 'secret1' });
     assert.equal(ok.status, 200);
     const me = await fetch(base + '/api/me', { headers: { Cookie: cookieOf(ok) } }).then((r) => r.json());
     assert.equal(me.user.name, 'Anna Maria Bianchi');
     // Un organizzatore entra sempre e può abilitare altre email
-    const boss = await post('/api/register', { firstName: 'Capo', lastName: 'Staff', email: 'boss@x.it' });
+    const boss = await post('/api/register', { firstName: 'Capo', lastName: 'Staff', email: 'boss@x.it', password: 'secret1' });
     assert.equal(boss.status, 200);
     assert.equal((await post('/api/admin/allow', { email: 'ospite@x.it' }, cookieOf(ok))).status, 403); // Anna non è admin
     const allow = await post('/api/admin/allow', { email: 'Ospite@x.it' }, cookieOf(boss));
     assert.deepEqual(await allow.json(), { ok: true, already: false });
-    assert.equal((await post('/api/register', { firstName: 'Ospite', lastName: 'Rossi', email: 'ospite@x.it' })).status, 200);
+    assert.equal((await post('/api/register', { firstName: 'Ospite', lastName: 'Rossi', email: 'ospite@x.it', password: 'secret1' })).status, 200);
   } finally { server.closeAllConnections(); server.close(); }
 });

@@ -135,6 +135,21 @@ input, textarea { font: inherit; color: inherit; }
 }
 .login-card button[type=submit]:active { transform: translateY(3px); box-shadow: inset 0 0 0 2px #07253D, 0 1px 0 #07253D; }
 .hint { margin: 0; font-size: 13px; color: var(--muted); text-align: center; line-height: 1.4; }
+.login-title { margin: 0 0 2px; font-family: var(--display); font-size: 24px; letter-spacing: .5px; text-transform: uppercase; color: var(--text); text-align: center; }
+.email-row { position: relative; }
+.login-card input[readonly] { color: var(--muted); padding-right: 84px; }
+.link-btn {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: transparent;
+  color: var(--link); font-weight: 800; font-size: 14px; padding: 8px 10px; border-radius: 10px; cursor: pointer;
+}
+.pw-wrap { position: relative; }
+.login-card .pw-wrap input, .pw-wrap input { padding-right: 48px; }
+.pw-eye {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%); border: 0; background: transparent;
+  width: 40px; height: 40px; border-radius: 10px; font-size: 17px; cursor: pointer; opacity: .55;
+}
+.pw-eye.on { opacity: 1; }
+.login-card .field { animation: fade .25s ease-out; }
 
 /* ---------- Pulsanti comuni ---------- */
 .btn {

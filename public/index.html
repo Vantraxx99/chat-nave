@@ -68,28 +68,48 @@
         <p class="brand-sub">The private chat for participants</p>
       </div>
       <div class="login-card">
-        <form id="login-form">
-          <div class="field-row">
-            <div class="field">
+        <form id="login-form" novalidate>
+          <!-- Accesso a passi: prima l'email, poi solo quello che serve (password, oppure nome e
+               cognome + nuova password la prima volta). -->
+          <p id="login-title" class="login-title">Sign in or join</p>
+          <div class="field">
+            <label for="email">Email</label>
+            <div class="email-row">
+              <input id="email" type="email" autocomplete="username" inputmode="email" maxlength="120" placeholder="the one you booked the trip with">
+              <button type="button" id="email-change" class="link-btn hidden">Change</button>
+            </div>
+          </div>
+          <div id="f-names" class="field-row hidden">
+            <div class="field" id="f-first">
               <label for="first-name">First name</label>
-              <input id="first-name" autocomplete="given-name" maxlength="40" required>
+              <input id="first-name" autocomplete="given-name" maxlength="40">
             </div>
             <div class="field">
               <label for="last-name">Last name</label>
-              <input id="last-name" autocomplete="family-name" maxlength="40" required>
+              <input id="last-name" autocomplete="family-name" maxlength="40">
             </div>
           </div>
-          <div class="field">
-            <label for="email">Email</label>
-            <input id="email" type="email" autocomplete="email" inputmode="email" maxlength="120" placeholder="the one you booked the trip with" required>
+          <div id="f-password" class="field hidden">
+            <label for="password" id="password-label">Password</label>
+            <div class="pw-wrap">
+              <input id="password" type="password" autocomplete="current-password" maxlength="200">
+              <button type="button" class="pw-eye" aria-label="Show password" data-for="password">👁️</button>
+            </div>
+          </div>
+          <div id="f-password2" class="field hidden">
+            <label for="password2">Repeat password</label>
+            <div class="pw-wrap">
+              <input id="password2" type="password" autocomplete="new-password" maxlength="200">
+              <button type="button" class="pw-eye" aria-label="Show password" data-for="password2">👁️</button>
+            </div>
           </div>
           <div id="join-code-field" class="field hidden">
             <label for="join-code">Event code</label>
             <input id="join-code" autocapitalize="characters" spellcheck="false" maxlength="20">
           </div>
-          <button type="submit">Join the chat</button>
+          <button type="submit" id="login-submit">Continue</button>
           <p id="login-error" class="error" role="alert"></p>
-          <p class="hint">First time? You'll be signed up automatically. To sign in on another phone, use the same email and last name.</p>
+          <p id="login-hint" class="hint">New here? You'll create your account in a moment. Already joined? You'll just need your password.</p>
         </form>
       </div>
       <button type="button" id="home-guide-link" class="home-link">📲 How to add the chat to your Home Screen</button>

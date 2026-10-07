@@ -44,8 +44,12 @@ const q = {
   userByEmail: db.prepare(`SELECT * FROM users WHERE email = ?`),
   userById: db.prepare(`SELECT id, name, is_admin, banned FROM users WHERE id = ?`),
   userProfile: db.prepare(`SELECT id, name, is_admin, profile FROM users WHERE id = ?`),
+  userEmail: db.prepare(`SELECT email FROM users WHERE id = ?`),
+  passwordHash: db.prepare(`SELECT password_hash FROM users WHERE id = ?`),
   insertUser: db.prepare(`INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)`),
-  sessionUser: db.prepare(`SELECT u.id, u.name, u.is_admin, u.banned FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`),
+  sessionUser: db.prepare(`SELECT u.id, u.name, u.is_admin, u.banned, u.password_hash IS NOT NULL AS has_password FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`),
+  setPassword: db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`),
+  deleteOtherSessions: db.prepare(`DELETE FROM sessions WHERE user_id = ? AND token != ?`),
   insertSession: db.prepare(`INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)`),
   deleteSession: db.prepare(`DELETE FROM sessions WHERE token = ?`),
   deleteUserSessions: db.prepare(`DELETE FROM sessions WHERE user_id = ?`),
@@ -247,7 +251,7 @@ const createLimit = limiter(10, 60_000);
 // tentativi di accesso SBAGLIATI, così 2000 login corretti non si bloccano.
 const loginFailures = new Map();
 const FAIL_WINDOW = 10 * 60_000;
-const MAX_FAILS = 150;
+const MAX_FAILS = 600; // con le password i tentativi sbagliati (refusi) sono più frequenti
 setInterval(() => {
   const now = Date.now();
   for (const [k, v] of loginFailures) if (now - v.start > FAIL_WINDOW) loginFailures.delete(k);
@@ -421,32 +425,116 @@ route('GET', '/api/config', async () => ({ joinCodeRequired: !!JOIN_CODE }));
 // Accesso e registrazione insieme: nome, cognome ed email.
 // - email nuova      -> crea l'utente (se la registrazione è aperta)
 // - email già nota   -> rientra, purché il cognome corrisponda
+// --- Password ---------------------------------------------------------------------
+// scrypt (async, non blocca il server mentre 2000 persone entrano insieme).
+const PW_MIN = 6;
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  return new Promise((resolve, reject) => crypto.scrypt(password, salt, 32, (err, key) => (err ? reject(err) : resolve(`s1$${salt.toString('base64')}$${key.toString('base64')}`))));
+}
+function verifyPassword(password, stored) {
+  const [v, salt, hash] = String(stored || '').split('$');
+  if (v !== 's1' || !salt || !hash) return Promise.resolve(false);
+  const expected = Buffer.from(hash, 'base64');
+  return new Promise((resolve) => crypto.scrypt(password, Buffer.from(salt, 'base64'), expected.length, (err, key) => resolve(!err && crypto.timingSafeEqual(key, expected))));
+}
+function checkNewPassword(pw) {
+  const password = String(pw || '');
+  if (password.length < PW_MIN) throw new HttpError(400, `Choose a password of at least ${PW_MIN} characters`);
+  if (password.length > 200) throw new HttpError(400, 'Password too long');
+  return password;
+}
+// Tentativi sbagliati per account: dopo 10 in 15 minuti quell'account si blocca per un po'
+// (sulla nave tutti hanno lo stesso IP, quindi il limite per IP da solo non basta).
+const pwFailures = new Map();
+const PW_FAIL_WINDOW = 15 * 60_000;
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of pwFailures) if (now - v.start > PW_FAIL_WINDOW) pwFailures.delete(k);
+}, PW_FAIL_WINDOW).unref();
+function checkPwAttempts(email) {
+  const f = pwFailures.get(email);
+  if (f && Date.now() - f.start <= PW_FAIL_WINDOW && f.n >= 10) throw new HttpError(429, 'Too many wrong passwords. Try again in 15 minutes, or ask an organiser to reset it.');
+}
+function pwFailed(email) {
+  let f = pwFailures.get(email);
+  if (!f || Date.now() - f.start > PW_FAIL_WINDOW) { f = { start: Date.now(), n: 0 }; pwFailures.set(email, f); }
+  f.n++;
+}
+
+// Primo passo dell'accesso: con questa email cosa serve?
+//  password → account con password · setup → account vecchio senza password (cognome + nuova password)
+//  new → prima volta (nome, cognome, password) · not-allowed → non è nell'elenco partecipanti
+route('POST', '/api/login/check', async (req) => {
+  checkLoginAllowed(req);
+  const body = await readJson(req);
+  const email = normalizeEmail(body.email);
+  if (!isValidEmail(email)) throw new HttpError(400, 'Invalid email');
+  const user = q.userByEmail.get(email);
+  if (user) return { step: user.password_hash ? 'password' : 'setup' };
+  if (LIST_ONLY && !isAllowedEmail(email)) return { step: 'not-allowed' };
+  return { step: 'new' };
+});
+
+// Accesso e registrazione insieme.
+// - email nuova                 -> nome, cognome e password: crea l'utente
+// - email con password          -> basta la password
+// - email senza password (vecchi account) -> cognome giusto + nuova password
 route('POST', '/api/register', async (req) => {
   checkLoginAllowed(req);
   const body = await readJson(req);
-  const firstName = cleanName(body.firstName);
-  const lastName = cleanName(body.lastName);
   const email = normalizeEmail(body.email);
-  if (!firstName || !lastName) throw new HttpError(400, 'Please enter your first and last name');
   if (!isValidEmail(email)) throw new HttpError(400, 'Invalid email');
+  const password = String(body.password || '');
 
   let user = q.userByEmail.get(email);
-  if (user) {
+  if (user && user.password_hash) {
+    checkPwAttempts(email);
+    if (!password || !await verifyPassword(password, user.password_hash)) {
+      pwFailed(email);
+      throw loginFailed(req, 401, 'Wrong password');
+    }
+  } else if (user) {
+    const lastName = cleanName(body.lastName);
+    if (!lastName) throw new HttpError(400, 'Please enter your last name');
     if (!surnameMatches(user.name, lastName)) {
       throw loginFailed(req, 401, 'This email is registered with a different last name');
     }
+    q.setPassword.run(await hashPassword(checkNewPassword(password)), user.id);
   } else {
+    const firstName = cleanName(body.firstName);
+    const lastName = cleanName(body.lastName);
+    if (!firstName || !lastName) throw new HttpError(400, 'Please enter your first and last name');
     if (LIST_ONLY && !isAllowedEmail(email)) {
       throw loginFailed(req, 403, 'This email is not on the Global Reunion participant list. Use the one you booked the trip with, or ask an organiser to allow it.');
     }
     if (JOIN_CODE && normalizeCode(body.joinCode) !== JOIN_CODE) throw loginFailed(req, 401, 'Invalid event code');
+    const hash = await hashPassword(checkNewPassword(password));
+    // Due richieste insieme per la stessa email: vince la prima.
+    if (q.userByEmail.get(email)) throw new HttpError(409, 'This email has just been registered: sign in with its password');
     const name = cleanName(`${firstName} ${lastName}`);
     const { lastInsertRowid } = q.insertUser.run(name, email, Date.now());
+    q.setPassword.run(hash, lastInsertRowid);
     user = q.userById.get(lastInsertRowid);
   }
   if (user.banned) throw new HttpError(403, 'Account suspended');
+  pwFailures.delete(email);
   if (ADMIN_EMAILS.has(email) && !user.is_admin) q.makeAdmin.run(user.id);
   return { status: 200, body: { ok: true }, headers: { 'Set-Cookie': startSession(user.id) } };
+});
+
+// Scegliere o cambiare la password da dentro l'app (chi era già entrato prima delle password
+// la sceglie qui; per cambiarla serve quella attuale). Gli altri dispositivi vengono disconnessi.
+route('PUT', '/api/me/password', async (req) => {
+  const user = auth(req);
+  const body = await readJson(req);
+  const password = checkNewPassword(body.password);
+  if (user.has_password) {
+    if (!await verifyPassword(String(body.current || ''), q.passwordHash.get(user.id).password_hash)) throw new HttpError(401, 'Your current password is wrong');
+  }
+  q.setPassword.run(await hashPassword(password), user.id);
+  q.deleteOtherSessions.run(user.id, parseCookies(req)[COOKIE]);
+  return { ok: true };
 });
 
 function isAllowedEmail(email) {
@@ -463,7 +551,7 @@ route('GET', '/api/me', async (req) => {
   const user = auth(req);
   const conversations = q.visibleConvs.all(user.id, user.id, user.is_admin).map((r) => conversationSummary(r, user));
   return {
-    user: { id: user.id, name: user.name, isAdmin: !!user.is_admin, profile: readProfile(q.userProfile.get(user.id)) },
+    user: { id: user.id, name: user.name, isAdmin: !!user.is_admin, profile: readProfile(q.userProfile.get(user.id)), hasPassword: !!user.has_password },
     cursor: seq,
     conversations,
   };
@@ -804,6 +892,20 @@ route('POST', '/api/admin/ban', async (req) => {
   const banned = body.banned === false ? 0 : 1;
   q.setBanned.run(banned, target.id);
   if (banned) q.deleteUserSessions.run(target.id);
+  return { ok: true };
+});
+
+// Password dimenticata: un organizzatore la azzera e la persona viene disconnessa. Al prossimo
+// accesso ne sceglie una nuova confermando il cognome.
+route('POST', '/api/admin/reset-password', async (req) => {
+  const user = auth(req);
+  requireAdmin(user);
+  const body = await readJson(req);
+  const target = q.userById.get(Number(body.userId));
+  if (!target) throw new HttpError(404, 'User not found');
+  q.setPassword.run(null, target.id);
+  q.deleteUserSessions.run(target.id);
+  pwFailures.delete(q.userEmail.get(target.id).email);
   return { ok: true };
 });
 

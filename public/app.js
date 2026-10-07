@@ -159,12 +159,54 @@
   }
 
   // --------------------------------------------------------------- Login
+  // Accesso a passi. "email" → il server dice cosa serve:
+  //  password (account esistente) · new (prima volta: nome, cognome e password)
+  //  setup (account di prima delle password: cognome + nuova password)
+  let loginStep = 'email';
+  const LOGIN_STEPS = {
+    email: { title: 'Sign in or join', button: 'Continue', hint: 'New here? You\'ll create your account in a moment. Already joined? You\'ll just need your password.' },
+    password: { title: 'Welcome back!', button: 'Sign in', hint: 'Forgot your password? Ask an organiser to reset it, then sign in again to choose a new one.' },
+    new: { title: 'Create your account', button: 'Join the chat', hint: 'Choose a password you\'ll remember: you\'ll need it to sign in on another phone, and nobody else can write as you.' },
+    setup: { title: 'Secure your account', button: 'Save & sign in', hint: 'Chats now have passwords, so nobody can write pretending to be you. Confirm your last name and choose one.' },
+  };
+  function setLoginStep(step) {
+    loginStep = step;
+    const cfg = LOGIN_STEPS[step];
+    $('#login-title').textContent = cfg.title;
+    $('#login-submit').textContent = cfg.button;
+    $('#login-hint').textContent = cfg.hint;
+    $('#login-error').textContent = '';
+    const email = $('#email');
+    email.readOnly = step !== 'email';
+    $('#email-change').classList.toggle('hidden', step === 'email');
+    $('#f-names').classList.toggle('hidden', step !== 'new' && step !== 'setup');
+    $('#f-first').classList.toggle('hidden', step !== 'new');
+    $('#f-password').classList.toggle('hidden', step === 'email');
+    $('#f-password2').classList.toggle('hidden', step !== 'new' && step !== 'setup');
+    $('#join-code-field').classList.toggle('hidden', step !== 'new' || !initLogin.joinCode);
+    const pw = $('#password');
+    pw.value = ''; $('#password2').value = '';
+    pw.autocomplete = step === 'password' ? 'current-password' : 'new-password';
+    $('#password-label').textContent = step === 'password' ? 'Password' : 'Choose a password (min. 6 characters)';
+    const focus = { email: email, password: pw, new: $('#first-name').value ? pw : $('#first-name'), setup: $('#last-name').value ? pw : $('#last-name') }[step];
+    setTimeout(() => focus.focus(), 30);
+  }
+  $('#email-change').addEventListener('click', () => setLoginStep('email'));
+  for (const eye of document.querySelectorAll('.pw-eye')) {
+    eye.addEventListener('click', () => {
+      const inp = document.getElementById(eye.dataset.for);
+      const show = inp.type === 'password';
+      inp.type = show ? 'text' : 'password';
+      eye.classList.toggle('on', show);
+      eye.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    });
+  }
+
   async function initLogin() {
     show('login');
     try {
       const cfg = await api('GET', '/api/config');
-      $('#join-code-field').classList.toggle('hidden', !cfg.joinCodeRequired);
-      $('#join-code').required = !!cfg.joinCodeRequired;
+      initLogin.joinCode = !!cfg.joinCodeRequired;
     } catch {}
     try {
       const saved = JSON.parse(localStorage.getItem('gr-login') || 'null');
@@ -174,26 +216,45 @@
         $('#email').value = saved.email || '';
       }
     } catch {}
-    if (!$('#first-name').value) $('#first-name').focus();
+    setLoginStep('email');
   }
 
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    $('#login-error').textContent = '';
-    const btn = e.target.querySelector('button');
-    const data = {
-      firstName: $('#first-name').value,
-      lastName: $('#last-name').value,
-      email: $('#email').value,
-      joinCode: $('#join-code').value,
-    };
+    const err = (t) => { $('#login-error').textContent = t; };
+    err('');
+    const btn = $('#login-submit');
+    const email = $('#email').value.trim();
+    if (!email) return err('Please enter your email');
     btn.disabled = true;
     try {
+      if (loginStep === 'email') {
+        const { step } = await api('POST', '/api/login/check', { email });
+        if (step === 'not-allowed') return err('This email is not on the Global Reunion participant list. Use the one you booked the trip with, or ask an organiser to allow it.');
+        return setLoginStep(step);
+      }
+      const data = {
+        email,
+        password: $('#password').value,
+        firstName: $('#first-name').value.trim(),
+        lastName: $('#last-name').value.trim(),
+        joinCode: $('#join-code').value,
+      };
+      if (loginStep === 'new' && (!data.firstName || !data.lastName)) return err('Please enter your first and last name');
+      if (loginStep === 'setup' && !data.lastName) return err('Please enter your last name');
+      if (!data.password) return err('Please enter your password');
+      if (loginStep !== 'password') {
+        if (data.password.length < 6) return err('Choose a password of at least 6 characters');
+        if (data.password !== $('#password2').value) return err('The two passwords don\'t match');
+      }
       await api('POST', '/api/register', data);
-      try { localStorage.setItem('gr-login', JSON.stringify({ firstName: data.firstName, lastName: data.lastName, email: data.email })); } catch {}
+      try { localStorage.setItem('gr-login', JSON.stringify({ firstName: data.firstName, lastName: data.lastName, email })); } catch {}
+      $('#password').value = ''; $('#password2').value = '';
       start();
-    } catch (err) { $('#login-error').textContent = err.message; }
-    finally { btn.disabled = false; }
+    } catch (e2) {
+      if (e2.status === 409) setLoginStep('password');
+      err(e2.message);
+    } finally { btn.disabled = false; }
   });
 
   // ---------------------------------------------------------------- Avvio
@@ -219,6 +280,8 @@
     const fromHash = Number(location.hash.slice(1));
     if (fromHash && state.convs.has(fromHash)) openConv(fromHash);
     poll();
+    // Chi era entrato prima delle password ne sceglie una subito.
+    if (!state.me.hasPassword) passwordDialog(true);
   }
 
   async function refreshConvs() {
@@ -1593,6 +1656,13 @@
       if (mine) body.append(menuButton('✏️  Edit my profile', editProfile));
       else {
         body.append(menuButton('💬  Send a private message', () => startDm(userId)));
+        if (state.me.isAdmin) {
+          body.append(menuButton('🔑  Reset password (organisers)', async () => {
+            if (!await askConfirm(`Reset ${user.name}'s password? They will be signed out and will choose a new one by confirming their last name.`, 'Reset')) return;
+            try { await api('POST', '/api/admin/reset-password', { userId }); toast('Password reset'); closeModal(); }
+            catch (err) { toast(err.message); }
+          }));
+        }
         if (state.me.isAdmin && !user.isAdmin) {
           body.append(menuButton('⛔  Suspend user (organisers)', async () => {
             if (!await askConfirm(`Suspend ${user.name}? They will no longer be able to use the chat.`, 'Suspend')) return;
@@ -1659,6 +1729,67 @@
     });
   }
   $('#me-avatar').addEventListener('click', () => showProfile(state.me.id));
+
+  // Scegliere (la prima volta) o cambiare la password.
+  function passwordDialog(firstTime = false) {
+    const change = !firstTime && state.me.hasPassword;
+    openModal(change ? 'Change password' : 'Choose a password', (body) => {
+      if (!change) body.append(el('p', null, 'Chats now have passwords, so nobody can sign in and write pretending to be you. Choose one you\'ll remember: you\'ll need it to sign in on another phone.'));
+      const form = el('form', 'profile-form');
+      const field = (name, label, ac) => {
+        const wrap = el('label', 'field');
+        wrap.append(el('span', 'ed-label', label));
+        const pw = el('div', 'pw-wrap');
+        const inp = el('input', 'ed-input');
+        inp.type = 'password'; inp.name = name; inp.autocomplete = ac; inp.maxLength = 200;
+        const eye = el('button', 'pw-eye', '👁️');
+        eye.type = 'button';
+        eye.setAttribute('aria-label', 'Show password');
+        eye.addEventListener('click', () => { const show = inp.type === 'password'; inp.type = show ? 'text' : 'password'; eye.classList.toggle('on', show); });
+        pw.append(inp, eye);
+        wrap.append(pw);
+        form.append(wrap);
+        return inp;
+      };
+      const user = el('input'); // per i gestori di password: a quale account appartiene
+      user.type = 'email'; user.autocomplete = 'username'; user.hidden = true;
+      try { user.value = (JSON.parse(localStorage.getItem('gr-login') || '{}').email) || ''; } catch {}
+      form.append(user);
+      const current = change ? field('current', 'Current password', 'current-password') : null;
+      const pw1 = field('password', 'New password (min. 6 characters)', 'new-password');
+      const pw2 = field('password2', 'Repeat new password', 'new-password');
+      const error = el('p', 'error');
+      const row = el('div', 'confirm-row');
+      if (!firstTime) {
+        const cancel = el('button', 'btn secondary', 'Cancel');
+        cancel.type = 'button';
+        cancel.addEventListener('click', closeModal);
+        row.append(cancel);
+      }
+      const save = el('button', 'btn', 'Save password');
+      save.type = 'submit';
+      row.append(save);
+      form.append(error, row);
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        error.textContent = '';
+        if (pw1.value.length < 6) return (error.textContent = 'At least 6 characters, please');
+        if (pw1.value !== pw2.value) return (error.textContent = 'The two passwords don\'t match');
+        save.disabled = true;
+        try {
+          await api('PUT', '/api/me/password', { current: current ? current.value : undefined, password: pw1.value });
+          state.me.hasPassword = true;
+          modalOnClose = null;
+          closeModal();
+          toast(change ? 'Password changed' : 'Password saved 🔒');
+        } catch (err) { error.textContent = err.message; save.disabled = false; }
+      });
+      body.append(form);
+      setTimeout(() => (current || pw1).focus(), 50);
+    });
+    // La prima volta non si salta: se chiudi la finestra, riappare.
+    if (firstTime) modalOnClose = () => setTimeout(() => { if (!state.me.hasPassword) passwordDialog(true); }, 300);
+  }
 
   $('#chat-title-btn').addEventListener('click', async () => {
     const conv = state.convs.get(state.current);
@@ -1742,6 +1873,7 @@
         }));
       }
       body.append(menuButton('👤  My profile', () => showProfile(state.me.id)));
+      body.append(menuButton('🔑  Change password', () => passwordDialog()));
       body.append(menuButton('ℹ️  Useful info', usefulInfo));
       body.append(menuButton('🛟  Contact staff', contactStaff));
       body.append(menuButton('🔔  Notifications, sound & vibration', notificationsDialog));

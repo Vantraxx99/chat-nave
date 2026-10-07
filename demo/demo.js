@@ -92,6 +92,7 @@ function createDemoServer() {
   }
 
   let me = null;
+  const accounts = new Map();
   let info = '# Welcome aboard! 🚢\nThis is a preview of the Useful info page. Organisers can edit it.\n\n## Staff\n- Need help? Tap **Contact staff**.\n\n## Good to know\n- Breakfast 08:00–10:30, deck 9\n- Welcome party tonight at 21:00, deck 11';
 
   const err = (status, message) => { const e = new Error(message); e.status = status; return e; };
@@ -137,13 +138,26 @@ function createDemoServer() {
     const p = u.pathname;
     let m;
     if (method === 'GET' && p === '/api/config') return { joinCodeRequired: false };
+    // Account dell'anteprima (solo in questo browser): email -> { user, password }
+    if (method === 'POST' && p === '/api/login/check') {
+      return { step: accounts.has(String(body.email || '').trim().toLowerCase()) ? 'password' : 'new' };
+    }
     if (method === 'POST' && p === '/api/register') {
+      const email = String(body.email || '').trim().toLowerCase();
+      const password = String(body.password || '');
+      const acc = accounts.get(email);
+      if (acc) {
+        if (acc.password !== password) throw err(401, 'Wrong password');
+        me = acc.user;
+        return { ok: true };
+      }
       const first = String(body.firstName || '').trim(), last = String(body.lastName || '').trim();
-      const email = String(body.email || '').trim();
       if (!first || !last) throw err(400, 'Please enter your first and last name');
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw err(400, 'Invalid email');
+      if (password.length < 6) throw err(400, 'Choose a password of at least 6 characters');
       // In anteprima sei un organizzatore, così vedi tutte le funzioni.
       me = addUser(`${first} ${last}`, { isAdmin: true });
+      accounts.set(email, { user: me, password });
       party.members.add(me.id);
       setTimeout(() => {
         const dm = addConv('dm', null, [me.id, people[0].id]);
@@ -154,7 +168,7 @@ function createDemoServer() {
     if (!me) throw err(401, 'Not signed in');
     if (method === 'POST' && p === '/api/logout') { me = null; return { ok: true }; }
     if (method === 'GET' && p === '/api/me') {
-      return { user: { id: me.id, name: me.name, isAdmin: me.isAdmin, profile: me.profile || {} }, cursor: seq, conversations: [...convs.values()].filter(visible).map(summary) };
+      return { user: { id: me.id, name: me.name, isAdmin: me.isAdmin, profile: me.profile || {}, hasPassword: true }, cursor: seq, conversations: [...convs.values()].filter(visible).map(summary) };
     }
     if (method === 'GET' && p === '/api/users') {
       const q = (u.searchParams.get('q') || '').toLowerCase();
@@ -244,6 +258,14 @@ function createDemoServer() {
     if ((m = p.match(/^\/api\/messages\/(\d+)\/reactions$/)) && method === 'GET') {
       return { reactions: [...(reacts.get(Number(m[1])) || new Map())].map(([id, emoji]) => ({ emoji, userId: id, name: users.get(id).name })) };
     }
+    if (method === 'PUT' && p === '/api/me/password') {
+      const acc = [...accounts.values()].find((a) => a.user === me);
+      if (acc && acc.password !== String(body.current || '')) throw err(401, 'Your current password is wrong');
+      if (String(body.password || '').length < 6) throw err(400, 'Choose a password of at least 6 characters');
+      if (acc) acc.password = String(body.password);
+      return { ok: true };
+    }
+    if (method === 'POST' && p === '/api/admin/reset-password') return { ok: true };
     if (method === 'PUT' && p === '/api/me/profile') {
       me.profile = window.DEMO_CLEAN_PROFILE(body.profile || {}, err);
       return { profile: me.profile };

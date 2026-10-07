@@ -7,7 +7,7 @@ sbloccato** dalla nave.
 
 ## Cosa fa
 
-- **Registrazione semplice**: nome, cognome ed email. La prima volta ci si registra, le volte dopo si rientra con la stessa email e lo stesso cognome.
+- **Registrazione semplice e protetta**: la prima volta nome, cognome, email e una password scelta da sé; le volte dopo bastano email e password.
 - **📢 Annunci**: canale in cui scrivono solo gli organizzatori e che tutti leggono.
 - Non c'è un canale generale: chi vuole chattare in gruppo crea il suo gruppo. Gli organizzatori possono comunque aprire canali per tutti dal menu "Nuova chat".
 - **Chat private 1 a 1**: si cerca una persona per nome tra i partecipanti. Le email non sono mai visibili agli altri.
@@ -89,9 +89,12 @@ basta per riconoscere chi si registra senza rendere leggibile l'elenco.
 - `SOLO_ISCRITTI=0` riapre la registrazione a chiunque abbia il link.
 - `JOIN_CODE=...` chiede anche un codice evento ai nuovi iscritti.
 
-Per rientrare bastano email e cognome. È comodo, ma vuol dire che chi conosce
-email e cognome di un altro partecipante potrebbe entrare al suo posto. Per una
-chat tra partecipanti di un evento è un compromesso ragionevole. Non usatela per
+Ogni partecipante sceglie una password al primo accesso (salvata cifrata con scrypt),
+così nessuno può entrare e scrivere al posto di un altro. Chi si era registrato prima
+delle password ne sceglie una appena apre l'app. Dopo 10 password sbagliate di fila
+l'account si blocca per 15 minuti. Password dimenticata: un organizzatore apre il
+profilo della persona → **Reset password**; al prossimo accesso la persona ne sceglie
+una nuova confermando il cognome. Resta una chat per un evento: non usatela per
 informazioni riservate.
 
 ### Importare la lista partecipanti

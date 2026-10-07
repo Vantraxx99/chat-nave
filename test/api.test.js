@@ -31,7 +31,7 @@ function client() {
   };
 }
 
-const reg = (firstName, lastName, email) => ({ firstName, lastName, email });
+const reg = (firstName, lastName, email, password = 'secret1') => ({ firstName, lastName, email, password });
 
 test('flusso completo: login, canali, DM, gruppi, polling, moderazione', async () => {
   const anna = client(), bruno = client(), carla = client(), estraneo = client();
@@ -42,8 +42,8 @@ test('flusso completo: login, canali, DM, gruppi, polling, moderazione', async (
   await bruno('POST', '/api/register', reg('Bruno', 'Verdi', 'bruno@x.it'));
   await carla('POST', '/api/register', reg('Carla', 'Staff', 'carla@weroad.test'));
   assert.equal((await estraneo('GET', '/api/me')).status, 401);
-  // Qualcuno prova a entrare con l'email di Anna ma un altro cognome
-  assert.equal((await estraneo('POST', '/api/register', reg('Finta', 'Anna', 'anna@x.it'))).status, 401);
+  // Qualcuno prova a entrare con l'email di Anna: senza la sua password non passa
+  assert.equal((await estraneo('POST', '/api/register', reg('Anna', 'Bianchi', 'anna@x.it', 'indovino'))).status, 401);
   // Rientro da un altro dispositivo: maiuscole, accenti e spazi non contano
   assert.equal((await client()('POST', '/api/register', reg('anna', ' BIANCHÌ ', ' Anna@X.it'))).status, 200);
   assert.equal((await carla('GET', '/api/me')).body.user.isAdmin, true);

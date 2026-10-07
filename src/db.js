@@ -116,6 +116,12 @@ if (!db.prepare(`PRAGMA table_info(users)`).all().some((c) => c.name === 'profil
   db.exec(`ALTER TABLE users ADD COLUMN profile TEXT`);
 }
 
+// Password scelta al primo accesso (hash scrypt): senza, chiunque conosca email e cognome
+// di qualcuno potrebbe entrare al suo posto.
+if (!db.prepare(`PRAGMA table_info(users)`).all().some((c) => c.name === 'password_hash')) {
+  db.exec(`ALTER TABLE users ADD COLUMN password_hash TEXT`);
+}
+
 // Unico canale di default: gli Annunci degli organizzatori. Per il resto i
 // partecipanti si creano i loro gruppi.
 function ensureDefaultChannels() {

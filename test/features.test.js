@@ -20,7 +20,7 @@ test('risposte, chat con lo staff e info utili', async () => {
   await new Promise((r) => server.listen(0, r));
   const base = `http://127.0.0.1:${server.address().port}`;
   const client = async (first, last, email) => {
-    const r = await fetch(base + '/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ firstName: first, lastName: last, email }) });
+    const r = await fetch(base + '/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ firstName: first, lastName: last, email, password: 'secret1' }) });
     const cookie = r.headers.get('set-cookie').split(';')[0];
     return (method, url, body) => fetch(base + url, { method, headers: { Cookie: cookie, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined })
       .then(async (res) => ({ status: res.status, body: await res.json().catch(() => null) }));
