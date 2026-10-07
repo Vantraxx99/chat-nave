@@ -76,6 +76,10 @@
 /* Comportamento da app: niente zoom con doppio tocco, niente "rimbalzo" della pagina,
    niente selezione accidentale dell'interfaccia (il testo dei messaggi resta selezionabile). */
 html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; touch-action: manipulation; }
+/* Safari su iPhone ignora overflow:hidden sul documento: fissiamo la pagina allo schermo,
+   così scorrono solo lista e messaggi. L'altezza segue lo spazio sopra la tastiera (--app-h). */
+body { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h, 100%); width: 100%; }
+.list, .messages, #modal-body, #login { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 input, textarea, .msg .text { -webkit-user-select: text; user-select: text; }
 body {

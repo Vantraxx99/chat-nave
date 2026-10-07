@@ -23,9 +23,26 @@
   // Niente zoom, come in un'app: iOS ignora user-scalable=no per il pizzico, quindi
   // blocchiamo anche i gesti a due dita e Ctrl+rotella sul computer.
   for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
+    window.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
     document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
   }
-  document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+  const noPinch = (e) => { if (e.touches && e.touches.length > 1) e.preventDefault(); };
+  document.addEventListener('touchstart', noPinch, { passive: false });
+  document.addEventListener('touchmove', noPinch, { passive: false });
+  document.addEventListener('touchmove', (e) => { if (typeof e.scale === 'number' && e.scale !== 1) e.preventDefault(); }, { passive: false });
+
+  // Su iPhone la tastiera non ridimensiona la pagina: usiamo l'area visibile reale,
+  // così intestazione e campo di scrittura restano al loro posto.
+  const vv = window.visualViewport;
+  if (vv) {
+    const fit = () => {
+      document.documentElement.style.setProperty('--app-h', vv.height + 'px');
+      if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
+    };
+    vv.addEventListener('resize', fit);
+    vv.addEventListener('scroll', fit);
+    fit();
+  }
   document.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '0'].includes(e.key)) e.preventDefault();
