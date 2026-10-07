@@ -515,20 +515,18 @@ route('POST', '/api/staff', async (req) => {
   return { id: conv.id };
 });
 
-// "Useful info": pagina scritta dagli organizzatori.
-const DEFAULT_INFO = `# Welcome aboard! 🚢
-This page is written by the organisers. Organisers: tap "Edit" to change it.
-
-## Staff
-- Need help? Use "Contact staff" in the menu.
-
-## Daily schedule
-- 08:00–10:30 Breakfast
-- 21:00 Party on the top deck
-
-## Good to know
-- Wi-Fi on board only works for this chat.
-- Keep your cabin card with you.`;
+// "Useful info": pagina scritta dagli organizzatori. Il contenuto è un JSON con
+// titolo, introduzione e sezioni (icona, titolo, righe "voce → valore"); le pagine
+// salvate prima, in testo semplice, vengono convertite dall'app.
+const DEFAULT_INFO = JSON.stringify({
+  title: 'Welcome aboard! 🚢',
+  intro: 'Everything you need on board, in one place. Organisers: tap Edit to change this page.',
+  sections: [
+    { icon: '📍', title: 'Reception', items: [{ t: 'Where', v: 'Deck 5' }, { t: 'Open', v: '24 hours' }] },
+    { icon: '🕒', title: 'Daily schedule', items: [{ t: 'Breakfast', v: '08:00–10:30' }, { t: 'Party', v: '21:00, top deck' }] },
+    { icon: '🛟', title: 'Need help?', items: [{ t: 'Write to us', v: 'Menu → Contact staff' }] },
+  ],
+});
 
 route('GET', '/api/info', async (req) => {
   auth(req);
@@ -542,8 +540,13 @@ route('PUT', '/api/info', async (req) => {
   const body = await readJson(req);
   const content = String(body.content || '').replace(/\r\n/g, '\n').trim();
   if (!content) throw new HttpError(400, 'The page cannot be empty');
-  if (content.length > 10000) throw new HttpError(400, 'Maximum 10,000 characters');
+  if (content.length > 20000) throw new HttpError(400, 'The page is too long');
   q.setInfo.run(content, user.id, Date.now());
+  // Facoltativo: avvisa tutti con un messaggio negli Announcements.
+  if (body.announce) {
+    const ann = db.prepare(`SELECT * FROM conversations WHERE type = 'announce' AND created_by IS NULL ORDER BY id LIMIT 1`).get();
+    if (ann) postMessage(ann, user.id, 'ℹ️ Useful info has been updated: tap the ⓘ icon at the top to read it.');
+  }
   return { ok: true };
 });
 

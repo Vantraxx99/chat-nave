@@ -547,8 +547,16 @@
 
   // ---------------------------------------------------- Lista delle chat
   function sortedConvs() {
-    const pinned = (c) => (c.type === 'announce' ? 2 : c.type === 'public' ? 1 : 0);
-    return [...state.convs.values()].sort((a, b) => {
+    // In cima: Staff support, poi Announcements, poi i canali pubblici.
+    // Per gli organizzatori le chat di assistenza salgono in cima solo se hanno messaggi da leggere.
+    const pinned = (c) => (c.type === 'staff' ? (state.me.isAdmin ? (c.unread ? 3 : 0) : 3)
+      : c.type === 'announce' ? 2 : c.type === 'public' ? 1 : 0);
+    const list = [...state.convs.values()];
+    // Il partecipante vede sempre "Staff support", anche prima di aver scritto (la chat si crea al primo tocco).
+    if (!state.me.isAdmin && !list.some((c) => c.type === 'staff')) {
+      list.push({ id: 'staff', type: 'staff', title: '🛟 Staff support', lastMessage: null, unread: 0, virtual: true });
+    }
+    return list.sort((a, b) => {
       const at = a.lastMessage ? a.lastMessage.createdAt : 0;
       const bt = b.lastMessage ? b.lastMessage.createdAt : 0;
       return pinned(b) - pinned(a) || bt - at;
@@ -598,13 +606,15 @@
         const lm = c.lastMessage;
         const who = lm.userId === state.me.id ? 'You: ' : c.type !== 'dm' && !isSystemText(lm.text) ? lm.userName.split(' ')[0] + ': ' : '';
         preview = lm.deleted ? '🚫 Message deleted' : who + lm.text.replace(/\n/g, ' ');
+      } else if (c.type === 'staff' && !state.me.isAdmin) {
+        preview = 'Questions? Write to the organisers';
       }
       r2.append(el('span', 'preview', preview));
       if (c.unread) r2.append(el('span', 'badge', c.unread > 99 ? '99+' : String(c.unread)));
-      else if (c.type === 'announce' || c.type === 'public') { const pin = el('span', 'pin'); pin.innerHTML = ICON_PIN; pin.title = 'Pinned'; r2.append(pin); }
+      else if (c.type === 'announce' || c.type === 'public' || (c.type === 'staff' && !state.me.isAdmin)) { const pin = el('span', 'pin'); pin.innerHTML = ICON_PIN; pin.title = 'Pinned'; r2.append(pin); }
       info.append(r1, r2);
       li.append(av, info);
-      li.addEventListener('click', () => openConv(c.id));
+      li.addEventListener('click', () => (c.virtual ? contactStaff() : openConv(c.id)));
       ul.append(li);
     }
     if (!shown) {
@@ -1067,63 +1077,201 @@
   }
 
   // ---------------------------------------------------- Info utili
-  // Mini-formattazione: "# Titolo", "## Sottotitolo", "- elenco", **grassetto**.
-  // Il testo viene sempre inserito come testo (mai come HTML).
-  function renderInfo(container, content) {
-    let list = null;
-    const inline = (parent, text) => {
-      text.split(/(\*\*[^*]+\*\*)/).forEach((part) => {
-        if (/^\*\*[^*]+\*\*$/.test(part)) parent.append(el('strong', null, part.slice(2, -2)));
-        else if (part) parent.append(document.createTextNode(part));
-      });
-    };
-    for (const raw of content.split('\n')) {
-      const line = raw.trimEnd();
-      if (/^- /.test(line)) {
-        if (!list) { list = el('ul', 'info-list'); container.append(list); }
-        const li = el('li'); inline(li, line.slice(2)); list.append(li);
-        continue;
-      }
-      list = null;
-      if (!line.trim()) continue;
-      let node;
-      if (/^## /.test(line)) { node = el('h4', 'info-h4'); inline(node, line.slice(3)); }
-      else if (/^# /.test(line)) { node = el('h3', 'info-h3'); inline(node, line.slice(2)); }
-      else { node = el('p', 'info-p'); inline(node, line); }
-      container.append(node);
+  // La pagina è fatta di sezioni (icona, titolo, righe "voce → valore").
+  // Gli organizzatori la modificano direttamente sulla pagina, senza simboli da ricordare.
+  const INFO_ICONS = ['📍', '🕒', '🍽️', '🍹', '📶', '🚨', '🛟', '👗', '🎉', '🏝️', '🚢', '🛏️', '💊', '💶', '📸', '🎵', '☀️', '🧳', '🚌', 'ℹ️', '⭐', '❤️', '⚠️', '📞'];
+  const INFO_PRESETS = [
+    { icon: '📍', title: 'Reception', items: [{ t: 'Where', v: 'Deck 5' }, { t: 'Open', v: '24 hours' }] },
+    { icon: '🕒', title: 'Schedule', items: [{ t: 'Breakfast', v: '08:00–10:30' }, { t: 'Dinner', v: '19:30–22:00' }] },
+    { icon: '🍽️', title: 'Food & drinks', items: [{ t: 'Main restaurant', v: 'Deck 6' }, { t: 'Bar', v: 'Deck 11, until 02:00' }] },
+    { icon: '📶', title: 'Wi‑Fi', items: [{ t: 'Network', v: 'Ship Wi‑Fi' }, { t: 'Works for', v: 'This chat only' }] },
+    { icon: '🚨', title: 'Emergency', items: [{ t: 'Medical centre', v: 'Deck 4' }, { t: 'Muster station', v: 'See your cabin card' }] },
+    { icon: '👗', title: 'Dress code', items: [{ t: 'Tonight', v: 'All white' }] },
+  ];
+  const blankInfo = () => ({ title: 'Welcome aboard! 🚢', intro: '', sections: [] });
+
+  // Converte le pagine salvate prima in testo semplice ("# titolo", "## sezione", "- riga").
+  function parseInfo(content) {
+    try {
+      const d = JSON.parse(content);
+      if (d && Array.isArray(d.sections)) return { title: d.title || '', intro: d.intro || '', sections: d.sections };
+    } catch {}
+    const info = blankInfo();
+    info.title = '';
+    let sec = null;
+    for (const raw of String(content || '').split('\n')) {
+      const line = raw.replace(/\*\*/g, '').trim();
+      if (!line) continue;
+      if (/^## /.test(line)) { sec = { icon: 'ℹ️', title: line.slice(3), items: [] }; info.sections.push(sec); continue; }
+      if (/^# /.test(line)) { if (!info.title) info.title = line.slice(2); continue; }
+      const text = line.replace(/^- /, '');
+      const i = text.indexOf(': ');
+      const item = i > 0 ? { t: text.slice(0, i), v: text.slice(i + 2) } : { t: text, v: '' };
+      if (!sec) { if (!info.intro && !/^- /.test(line)) { info.intro = text; continue; } sec = { icon: 'ℹ️', title: 'Info', items: [] }; info.sections.push(sec); }
+      sec.items.push(item);
     }
+    return info;
+  }
+
+  function renderInfoView(container, info) {
+    container.textContent = '';
+    if (info.title) container.append(el('h3', 'info-title', info.title));
+    if (info.intro) container.append(el('p', 'info-intro', info.intro));
+    info.sections.forEach((sec, i) => {
+      const card = el('section', 'info-card');
+      const head = el('div', 'info-card-head');
+      head.append(el('span', 'info-icon ic-' + (i % 4), sec.icon || 'ℹ️'), el('h4', 'info-card-title', sec.title));
+      card.append(head);
+      for (const it of sec.items || []) {
+        if (!it.t && !it.v) continue;
+        const row = el('div', 'info-row' + (it.v ? '' : ' single'));
+        row.append(el('span', 'info-label', it.t || ''));
+        if (it.v) row.append(el('span', 'info-value', it.v));
+        card.append(row);
+      }
+      container.append(card);
+    });
+    if (!info.sections.length && !info.intro) container.append(el('p', 'muted', 'Nothing here yet.'));
   }
 
   async function usefulInfo() {
-    let info;
-    try { info = await api('GET', '/api/info'); } catch (err) { return toast(err.message); }
+    let data;
+    try { data = await api('GET', '/api/info'); } catch (err) { return toast(err.message); }
+    const info = parseInfo(data.content);
     openModal('Useful info', (body) => {
+      if (state.me.isAdmin) {
+        const edit = el('button', 'info-edit-btn', '✏️ Edit');
+        edit.type = 'button';
+        edit.addEventListener('click', () => editInfo(info));
+        body.append(edit);
+      }
       const page = el('div', 'info-page');
-      renderInfo(page, info.content);
+      renderInfoView(page, info);
       body.append(page);
-      if (info.updatedAt) {
-        const when = new Date(info.updatedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-        body.append(el('p', 'muted info-updated', `Updated ${when}${info.updatedBy ? ' by ' + info.updatedBy : ''}`));
+      if (data.updatedAt) {
+        const when = new Date(data.updatedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+        body.append(el('p', 'muted info-updated', `Updated ${when}${data.updatedBy ? ' by ' + data.updatedBy : ''}`));
       }
       body.append(menuButton('🛟  Contact staff', contactStaff, 'primary'));
-      if (state.me.isAdmin) body.append(menuButton('✏️  Edit this page (organisers)', () => editInfo(info.content)));
     });
   }
 
-  function editInfo(content) {
+  // Editor visuale: campi al posto del testo, sezioni pronte, frecce per riordinare.
+  function editInfo(original) {
+    const info = JSON.parse(JSON.stringify(original));
     openModal('Edit info', (body) => {
-      body.append(el('p', 'muted', 'Use "# Title", "## Section", "- list item" and **bold**. Everyone sees the page as soon as you save.'));
-      const ta = el('textarea', 'info-editor');
-      ta.value = content;
-      ta.rows = 14;
-      ta.maxLength = 10000;
-      const save = el('button', 'btn', 'Save');
-      save.type = 'button';
+      const wrap = el('div', 'info-editor-wrap');
+      const input = (value, placeholder, cls, onInput, max = 120) => {
+        const i = el('input', cls);
+        i.type = 'text'; i.value = value || ''; i.placeholder = placeholder; i.maxLength = max;
+        i.addEventListener('input', () => onInput(i.value));
+        return i;
+      };
+      const iconBtn = (sec, redraw) => {
+        const b = el('button', 'ed-icon', sec.icon || 'ℹ️');
+        b.type = 'button';
+        b.setAttribute('aria-label', 'Change icon');
+        b.addEventListener('click', () => {
+          const open = b.nextElementSibling && b.nextElementSibling.classList.contains('ed-icons');
+          wrap.querySelectorAll('.ed-icons').forEach((g) => g.remove());
+          if (open) return;
+          const grid = el('div', 'ed-icons');
+          for (const ic of INFO_ICONS) {
+            const o = el('button', null, ic); o.type = 'button';
+            o.addEventListener('click', () => { sec.icon = ic; redraw(); });
+            grid.append(o);
+          }
+          b.after(grid);
+        });
+        return b;
+      };
+      const draw = () => {
+        wrap.textContent = '';
+        const top = el('div', 'ed-card ed-top');
+        top.append(el('label', 'ed-label', 'Page title'), input(info.title, 'Welcome aboard! 🚢', 'ed-title', (v) => { info.title = v; }, 80),
+          el('label', 'ed-label', 'Intro (optional)'), input(info.intro, 'A short welcome message', 'ed-intro', (v) => { info.intro = v; }, 300));
+        wrap.append(top);
+        info.sections.forEach((sec, si) => {
+          const card = el('div', 'ed-card');
+          const head = el('div', 'ed-head');
+          const tools = el('div', 'ed-tools');
+          const tool = (label, title, fn, disabled) => { const t = el('button', 'ed-tool', label); t.type = 'button'; t.title = title; t.setAttribute('aria-label', title); t.disabled = !!disabled; t.addEventListener('click', fn); return t; };
+          tools.append(
+            tool('↑', 'Move up', () => { [info.sections[si - 1], info.sections[si]] = [info.sections[si], info.sections[si - 1]]; draw(); }, si === 0),
+            tool('↓', 'Move down', () => { [info.sections[si + 1], info.sections[si]] = [info.sections[si], info.sections[si + 1]]; draw(); }, si === info.sections.length - 1),
+            tool('🗑', 'Delete section', async () => { if (await confirmInline(card, 'Delete this section?')) { info.sections.splice(si, 1); draw(); } }),
+          );
+          head.append(iconBtn(sec, draw), input(sec.title, 'Section title', 'ed-sec-title', (v) => { sec.title = v; }, 60), tools);
+          card.append(head);
+          (sec.items = sec.items || []).forEach((it, ii) => {
+            const row = el('div', 'ed-row');
+            const del = el('button', 'ed-del', '✕'); del.type = 'button'; del.setAttribute('aria-label', 'Remove line');
+            del.addEventListener('click', () => { sec.items.splice(ii, 1); draw(); });
+            row.append(input(it.t, 'Label (e.g. Breakfast)', 'ed-t', (v) => { it.t = v; }), input(it.v, 'Details (e.g. 08:00, deck 9)', 'ed-v', (v) => { it.v = v; }, 200), del);
+            card.append(row);
+          });
+          const add = el('button', 'ed-add', '+ Add line'); add.type = 'button';
+          add.addEventListener('click', () => { sec.items.push({ t: '', v: '' }); draw(); const rows = wrap.querySelectorAll('.ed-card')[si + 1].querySelectorAll('.ed-t'); rows[rows.length - 1].focus(); });
+          card.append(add);
+          wrap.append(card);
+        });
+        const presets = el('div', 'ed-card ed-presets');
+        presets.append(el('div', 'ed-label', 'Add a section'));
+        const chips = el('div', 'ed-chips');
+        for (const pr of [...INFO_PRESETS, { icon: '➕', title: 'Empty section', items: [{ t: '', v: '' }] }]) {
+          const c = el('button', 'ed-chip', `${pr.icon} ${pr.title}`); c.type = 'button';
+          c.addEventListener('click', () => {
+            const copy = JSON.parse(JSON.stringify(pr));
+            if (copy.icon === '➕') { copy.icon = 'ℹ️'; copy.title = ''; }
+            info.sections.push(copy); draw();
+            const cards = wrap.querySelectorAll('.ed-card');
+            cards[cards.length - 2].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          });
+          chips.append(c);
+        }
+        presets.append(chips);
+        wrap.append(presets);
+      };
+      draw();
+
+      const bar = el('div', 'ed-bar');
+      const notifyLbl = el('label', 'ed-notify');
+      const notify = el('input'); notify.type = 'checkbox';
+      notifyLbl.append(notify, document.createTextNode(' Tell everyone in Announcements'));
+      const cancel = el('button', 'btn secondary', 'Cancel'); cancel.type = 'button';
+      cancel.addEventListener('click', () => usefulInfo());
+      const save = el('button', 'btn lime', 'Save'); save.type = 'button';
       save.addEventListener('click', async () => {
-        try { await api('PUT', '/api/info', { content: ta.value }); toast('Info page saved'); usefulInfo(); }
-        catch (err) { toast(err.message); }
+        const clean = {
+          title: info.title.trim(), intro: info.intro.trim(),
+          sections: info.sections
+            .map((sec) => ({ icon: sec.icon || 'ℹ️', title: (sec.title || '').trim(), items: (sec.items || []).map((it) => ({ t: (it.t || '').trim(), v: (it.v || '').trim() })).filter((it) => it.t || it.v) }))
+            .filter((sec) => sec.title || sec.items.length),
+        };
+        save.disabled = true;
+        try {
+          await api('PUT', '/api/info', { content: JSON.stringify(clean), announce: notify.checked });
+          toast('✅ Saved');
+          usefulInfo();
+        } catch (err) { toast(err.message); save.disabled = false; }
       });
-      body.append(ta, save);
+      const btns = el('div', 'ed-btns'); btns.append(cancel, save);
+      bar.append(notifyLbl, btns);
+      body.append(wrap, bar);
+    });
+  }
+
+  // Conferma piccola dentro la scheda (senza chiudere l'editor).
+  function confirmInline(card, question) {
+    return new Promise((resolve) => {
+      card.querySelectorAll('.ed-confirm').forEach((x) => x.remove());
+      const box = el('div', 'ed-confirm');
+      const no = el('button', 'btn secondary', 'Keep'); no.type = 'button';
+      const yes = el('button', 'btn danger', 'Delete'); yes.type = 'button';
+      no.addEventListener('click', () => { box.remove(); resolve(false); });
+      yes.addEventListener('click', () => { box.remove(); resolve(true); });
+      box.append(el('span', null, question), no, yes);
+      card.append(box);
     });
   }
   $('#btn-info').addEventListener('click', usefulInfo);
