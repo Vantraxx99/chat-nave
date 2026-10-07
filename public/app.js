@@ -51,6 +51,21 @@
   // In anteprima (demo.js) le chiamate vanno a un server simulato nel browser.
   const demo = window.DEMO_SERVER || null;
 
+  // Aggiornamento automatico: la pagina conosce la sua versione, il server manda
+  // la sua con ogni risposta. Se cambiano, ricarichiamo appena è sicuro farlo.
+  const myVersion = (document.querySelector('meta[name="app-version"]') || {}).content || '';
+  function checkVersion(res) {
+    const v = res && res.headers && res.headers.get('X-App-Version');
+    if (!v || !myVersion || myVersion.startsWith('__') || v === myVersion || checkVersion.pending) return;
+    checkVersion.pending = true;
+    const tryReload = () => {
+      const busy = ($('#msg-input') && $('#msg-input').value.trim()) || !$('#modal').classList.contains('hidden');
+      if (busy) return setTimeout(tryReload, 5000);
+      location.reload();
+    };
+    tryReload();
+  }
+
   async function api(method, url, body) {
     if (demo) return demo.request(method, url, body);
     const opts = { method, headers: {}, credentials: 'same-origin' };
@@ -59,6 +74,7 @@
       opts.body = JSON.stringify(body);
     }
     const res = await fetch(url, opts);
+    checkVersion(res);
     let data = {};
     try { data = await res.json(); } catch {}
     if (!res.ok) {
@@ -212,6 +228,7 @@
         const visible = document.visibilityState === 'visible' ? 1 : 0;
         const data = demo ? await demo.poll(state.cursor) : await fetch(`/api/poll?since=${state.cursor}&v=${visible}`, { signal: state.pollCtrl.signal, credentials: 'same-origin' })
           .then(async (r) => {
+            checkVersion(r);
             if (r.status === 401 || r.status === 403) { const e = new Error('auth'); e.status = r.status; throw e; }
             if (!r.ok) throw new Error('http ' + r.status);
             return r.json();
@@ -240,6 +257,7 @@
   // così il server sa se mandare la notifica push o no.
   document.addEventListener('visibilitychange', () => {
     if (state.me && state.pollCtrl && !demo) state.pollCtrl.abort();
+    if (document.visibilityState === 'visible' && !demo) fetch('/healthz', { cache: 'no-store' }).then(checkVersion).catch(() => {});
   });
 
   function handleIncoming(list) {

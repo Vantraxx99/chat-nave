@@ -641,12 +641,25 @@ const MIME = {
 // così via satellite si scaricano una volta sola.
 const LONG_CACHE = new Set(['.png', '.jpg', '.svg', '.woff2']);
 const staticCache = new Map();
+// Versione dell'interfaccia: cambia a ogni aggiornamento dei file in public/.
+// Viene scritta nella pagina e mandata con ogni risposta: se il telefono ha
+// ancora la versione vecchia aperta (iPhone non ricarica le app della Home),
+// si accorge della differenza e si ricarica da solo.
+const APP_VERSION = (() => {
+  const h = crypto.createHash('sha1');
+  for (const f of fs.readdirSync(PUBLIC_DIR).sort()) {
+    try { h.update(f).update(fs.readFileSync(path.join(PUBLIC_DIR, f))); } catch {}
+  }
+  return h.digest('hex').slice(0, 12);
+})();
+
 function loadStatic(rel) {
   if (staticCache.has(rel)) return staticCache.get(rel);
   const file = path.join(PUBLIC_DIR, rel);
   if (!file.startsWith(PUBLIC_DIR + path.sep)) return null;
   let raw;
   try { raw = fs.readFileSync(file); } catch { return null; }
+  if (rel === 'index.html') raw = Buffer.from(raw.toString('utf8').replaceAll('__APP_VERSION__', APP_VERSION));
   const entry = {
     raw,
     gz: zlib.gzipSync(raw, { level: 9 }),
@@ -683,6 +696,7 @@ const SECURITY_HEADERS = {
 
 const server = http.createServer(async (req, res) => {
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
+  res.setHeader('X-App-Version', APP_VERSION);
   const url = new URL(req.url, 'http://localhost');
   try {
     if (!url.pathname.startsWith('/api/') && url.pathname !== '/healthz') {

@@ -23,7 +23,7 @@ const sharedScript = shared
   : '';
 
 const index = read('public/index.html');
-const body = index.slice(index.indexOf('<body>') + 6, index.indexOf('<script src="/app.js">')).trim();
+const body = index.slice(index.indexOf('<body>') + 6, index.indexOf('<script src="/app.js')).trim();
 const title = index.match(/<title>(.*?)<\/title>/)[1];
 
 const banner = `<div class="demo-banner">Preview: messages and other participants are simulated and stay on this device only.</div>`;
