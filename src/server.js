@@ -67,33 +67,46 @@ const q = {
       COALESCE((SELECT last_read_id FROM reads WHERE user_id = ? AND conversation_id = c.id), 0) AS last_read_id
     FROM conversations c
     WHERE c.type IN ('public','announce')
-       OR c.id IN (SELECT conversation_id FROM members WHERE user_id = ?)`),
+       OR c.id IN (SELECT conversation_id FROM members WHERE user_id = ?)
+       OR (c.type = 'staff' AND ? = 1)`),
+  adminIds: db.prepare(`SELECT id FROM users WHERE is_admin = 1 AND banned = 0`),
+  getInfo: db.prepare(`SELECT i.content, i.updated_at, u.name AS updated_by FROM info i LEFT JOIN users u ON u.id = i.updated_by WHERE i.id = 'main'`),
+  setInfo: db.prepare(`
+    INSERT INTO info (id, content, updated_by, updated_at) VALUES ('main', ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_by = excluded.updated_by, updated_at = excluded.updated_at`),
   unread: db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND id > ? AND user_id != ? AND deleted = 0`),
   msgById: db.prepare(`
-    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq
-    FROM messages m JOIN users u ON u.id = m.user_id WHERE m.id = ?`),
-  history: db.prepare(`
-    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq
+    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq,
+      m.reply_to, r.user_id AS r_user_id, ru.name AS r_user_name, r.text AS r_text, r.deleted AS r_deleted
     FROM messages m JOIN users u ON u.id = m.user_id
+    LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.user_id WHERE m.id = ?`),
+  history: db.prepare(`
+    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq,
+      m.reply_to, r.user_id AS r_user_id, ru.name AS r_user_name, r.text AS r_text, r.deleted AS r_deleted
+    FROM messages m JOIN users u ON u.id = m.user_id
+    LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.user_id
     WHERE m.conversation_id = ? AND m.id < ? ORDER BY m.id DESC LIMIT ?`),
-  insertMsg: db.prepare(`INSERT INTO messages (conversation_id, user_id, text, created_at, seq) VALUES (?, ?, ?, ?, ?)`),
+  insertMsg: db.prepare(`INSERT INTO messages (conversation_id, user_id, text, created_at, seq, reply_to) VALUES (?, ?, ?, ?, ?, ?)`),
   deleteMsg: db.prepare(`UPDATE messages SET deleted = 1, text = '', seq = ? WHERE id = ?`),
   upsertRead: db.prepare(`
     INSERT INTO reads (user_id, conversation_id, last_read_id) VALUES (?, ?, ?)
     ON CONFLICT(user_id, conversation_id) DO UPDATE SET last_read_id = MAX(last_read_id, excluded.last_read_id)`),
   since: db.prepare(`
-    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq
-    FROM messages m
-    JOIN users u ON u.id = m.user_id
+    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq,
+      m.reply_to, r.user_id AS r_user_id, ru.name AS r_user_name, r.text AS r_text, r.deleted AS r_deleted
+    FROM messages m JOIN users u ON u.id = m.user_id
+    LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.user_id
     JOIN conversations c ON c.id = m.conversation_id
     WHERE m.seq > ?
       AND (c.type IN ('public','announce')
-           OR EXISTS (SELECT 1 FROM members WHERE conversation_id = c.id AND user_id = ?))
+           OR EXISTS (SELECT 1 FROM members WHERE conversation_id = c.id AND user_id = ?)
+           OR (c.type = 'staff' AND ? = 1))
     ORDER BY m.seq LIMIT 300`),
   sincePublic: db.prepare(`
-    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq
-    FROM messages m
-    JOIN users u ON u.id = m.user_id
+    SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq,
+      m.reply_to, r.user_id AS r_user_id, ru.name AS r_user_name, r.text AS r_text, r.deleted AS r_deleted
+    FROM messages m JOIN users u ON u.id = m.user_id
+    LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.user_id
     JOIN conversations c ON c.id = m.conversation_id
     WHERE m.seq > ? AND c.type IN ('public','announce')
     ORDER BY m.seq LIMIT 300`),
@@ -104,27 +117,38 @@ function publicMsg(m) {
   return {
     id: m.id, conversationId: m.conversation_id, userId: m.user_id, userName: m.user_name,
     text: m.deleted ? '' : m.text, deleted: !!m.deleted, createdAt: m.created_at, seq: m.seq,
+    replyTo: m.reply_to ? {
+      id: m.reply_to, userId: m.r_user_id, userName: m.r_user_name || '',
+      text: m.r_deleted ? '' : String(m.r_text || '').slice(0, 160), deleted: !!m.r_deleted,
+    } : null,
   };
 }
 
-function canSee(conv, userId) {
+// Chat "Contact staff": una per partecipante; la vedono lui e tutti gli organizzatori.
+function canSee(conv, user) {
   if (!conv) return false;
   if (conv.type === 'public' || conv.type === 'announce') return true;
-  return !!q.isMember.get(conv.id, userId);
+  if (conv.type === 'staff' && user.is_admin) return true;
+  return !!q.isMember.get(conv.id, user.id);
 }
 
-function convTitle(conv, userId) {
+function convTitle(conv, user) {
+  if (conv.type === 'staff') {
+    const owner = q.members.all(conv.id)[0];
+    return user.is_admin && owner && owner.id !== user.id ? `🛟 ${owner.name}` : '🛟 Staff support';
+  }
   if (conv.type !== 'dm') return conv.name;
-  const other = q.members.all(conv.id).find((u) => u.id !== userId);
+  const other = q.members.all(conv.id).find((u) => u.id !== user.id);
   return other ? other.name : 'Chat';
 }
 
-function conversationSummary(row, userId) {
+function conversationSummary(row, user) {
+  const userId = user.id;
   const last = row.last_id ? q.msgById.get(row.last_id) : null;
   const summary = {
     id: row.id,
     type: row.type,
-    title: convTitle(row, userId),
+    title: convTitle(row, user),
     lastMessage: last ? publicMsg(last) : null,
     unread: q.unread.get(row.id, row.last_read_id, userId).n,
   };
@@ -143,9 +167,16 @@ let pendingAll = false;
 const pendingUsers = new Set();
 let flushScheduled = false;
 
+// Chi riceve i messaggi di una chat non pubblica (le chat con lo staff vanno anche a tutti gli organizzatori).
+function recipientsOf(conv) {
+  const ids = new Set(q.memberIds.all(conv.id).map((r) => r.user_id));
+  if (conv.type === 'staff') for (const r of q.adminIds.all()) ids.add(r.id);
+  return [...ids];
+}
+
 function notify(conv) {
   if (conv.type === 'public' || conv.type === 'announce') pendingAll = true;
-  else for (const r of q.memberIds.all(conv.id)) pendingUsers.add(r.user_id);
+  else for (const id of recipientsOf(conv)) pendingUsers.add(id);
   if (!flushScheduled) {
     flushScheduled = true;
     // Breve attesa per accorpare più messaggi in un'unica risposta.
@@ -165,7 +196,7 @@ function flush() {
   const publicByCursor = new Map();
   for (const w of [...waiters]) {
     let rows;
-    if (users.has(w.userId)) rows = q.since.all(w.since, w.userId);
+    if (users.has(w.userId)) rows = q.since.all(w.since, w.userId, w.isAdmin);
     else if (all) {
       let shared = publicByCursor.get(w.since);
       if (!shared) { shared = { rows: q.sincePublic.all(w.since) }; publicByCursor.set(w.since, shared); }
@@ -313,7 +344,7 @@ function startSession(userId) {
 
 function getConvOr404(id, user) {
   const conv = q.conv.get(Number(id));
-  if (!canSee(conv, user.id)) throw new HttpError(404, 'Chat not found');
+  if (!canSee(conv, user)) throw new HttpError(404, 'Chat not found');
   return conv;
 }
 
@@ -330,9 +361,9 @@ function createGroupLike(type, name, creatorId, memberIds) {
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
 
-function postMessage(conv, userId, text) {
+function postMessage(conv, userId, text, replyTo = null) {
   const s = nextSeq();
-  const { lastInsertRowid } = q.insertMsg.run(conv.id, userId, text, Date.now(), s);
+  const { lastInsertRowid } = q.insertMsg.run(conv.id, userId, text, Date.now(), s, replyTo);
   q.upsertRead.run(userId, conv.id, lastInsertRowid);
   notify(conv);
   const msg = q.msgById.get(lastInsertRowid);
@@ -350,12 +381,15 @@ function sendPush(conv, msg) {
   const first = msg.user_name.split(' ')[0];
   const text = msg.text.length > 140 ? msg.text.slice(0, 137) + '…' : msg.text;
   const message = {
-    title: conv.type === 'dm' ? msg.user_name : conv.name,
+    // Chat con lo staff: agli organizzatori arriva il nome del partecipante, al partecipante "Staff support".
+    title: conv.type === 'dm' ? msg.user_name
+      : conv.type === 'staff' ? (msg.user_id === conv.created_by ? `🛟 ${msg.user_name}` : '🛟 Staff support')
+      : conv.name,
     body: conv.type === 'dm' || conv.type === 'announce' ? text : `${first}: ${text}`,
     convId: conv.id,
     tag: 'conv-' + conv.id,
   };
-  const recipients = conv.type === 'announce' ? null : q.memberIds.all(conv.id).map((r) => r.user_id);
+  const recipients = conv.type === 'announce' ? null : recipientsOf(conv);
   try { push.notify(recipients, message, exclude); } catch (err) { console.error('push', err); }
 }
 
@@ -413,7 +447,7 @@ route('POST', '/api/logout', async (req) => {
 
 route('GET', '/api/me', async (req) => {
   const user = auth(req);
-  const conversations = q.visibleConvs.all(user.id, user.id).map((r) => conversationSummary(r, user.id));
+  const conversations = q.visibleConvs.all(user.id, user.id, user.is_admin).map((r) => conversationSummary(r, user));
   return {
     user: { id: user.id, name: user.name, isAdmin: !!user.is_admin },
     cursor: seq,
@@ -431,8 +465,8 @@ route('GET', '/api/users', async (req, res, params, url) => {
 route('GET', '/api/conversations/:id', async (req, res, { id }) => {
   const user = auth(req);
   const conv = getConvOr404(id, user);
-  const row = q.visibleConvs.all(user.id, user.id).find((r) => r.id === conv.id);
-  const summary = conversationSummary(row, user.id);
+  const row = q.visibleConvs.all(user.id, user.id, user.is_admin).find((r) => r.id === conv.id);
+  const summary = conversationSummary(row, user);
   if (conv.type === 'group') summary.members = q.members.all(conv.id);
   return summary;
 });
@@ -454,7 +488,63 @@ route('POST', '/api/conversations/:id/messages', async (req, res, { id }) => {
   const text = String(body.text || '').replace(/\r\n/g, '\n').trim();
   if (!text) throw new HttpError(400, 'Empty message');
   if (text.length > MAX_TEXT) throw new HttpError(400, `Maximum ${MAX_TEXT} characters`);
-  return { message: publicMsg(postMessage(conv, user.id, text)) };
+  // Risposta a un messaggio: deve essere della stessa chat.
+  let replyTo = null;
+  if (body.replyTo) {
+    const original = q.msgById.get(Number(body.replyTo));
+    if (!original || original.conversation_id !== conv.id) throw new HttpError(400, 'The message you are replying to is not in this chat');
+    replyTo = original.id;
+  }
+  return { message: publicMsg(postMessage(conv, user.id, text, replyTo)) };
+});
+
+// "Contact staff": apre (o crea) la chat di assistenza di chi la chiede.
+route('POST', '/api/staff', async (req) => {
+  const user = auth(req);
+  const key = 'staff:' + user.id;
+  let conv = q.dmByKey.get(key);
+  if (!conv) {
+    db.exec('BEGIN');
+    try {
+      const { lastInsertRowid } = q.insertConv.run('staff', null, key, user.id, Date.now());
+      q.addMember.run(lastInsertRowid, user.id);
+      db.exec('COMMIT');
+      conv = q.conv.get(lastInsertRowid);
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+  return { id: conv.id };
+});
+
+// "Useful info": pagina scritta dagli organizzatori.
+const DEFAULT_INFO = `# Welcome aboard! 🚢
+This page is written by the organisers. Organisers: tap "Edit" to change it.
+
+## Staff
+- Need help? Use "Contact staff" in the menu.
+
+## Daily schedule
+- 08:00–10:30 Breakfast
+- 21:00 Party on the top deck
+
+## Good to know
+- Wi-Fi on board only works for this chat.
+- Keep your cabin card with you.`;
+
+route('GET', '/api/info', async (req) => {
+  auth(req);
+  const row = q.getInfo.get();
+  return { content: row ? row.content : DEFAULT_INFO, updatedAt: row ? row.updated_at : null, updatedBy: row ? row.updated_by : null };
+});
+
+route('PUT', '/api/info', async (req) => {
+  const user = auth(req);
+  requireAdmin(user);
+  const body = await readJson(req);
+  const content = String(body.content || '').replace(/\r\n/g, '\n').trim();
+  if (!content) throw new HttpError(400, 'The page cannot be empty');
+  if (content.length > 10000) throw new HttpError(400, 'Maximum 10,000 characters');
+  q.setInfo.run(content, user.id, Date.now());
+  return { ok: true };
 });
 
 route('POST', '/api/conversations/:id/read', async (req, res, { id }) => {
@@ -536,7 +626,7 @@ route('DELETE', '/api/messages/:id', async (req, res, { id }) => {
 route('GET', '/api/poll', async (req, res, params, url) => {
   const user = auth(req);
   const since = Math.max(0, Number(url.searchParams.get('since')) || 0);
-  const rows = q.since.all(since, user.id);
+  const rows = q.since.all(since, user.id, user.is_admin);
   const reply = (list) => ({
     messages: list.map(publicMsg),
     cursor: list.length ? list[list.length - 1].seq : Math.max(since, seq),
@@ -547,6 +637,7 @@ route('GET', '/api/poll', async (req, res, params, url) => {
       userId: user.id,
       since,
       visible: url.searchParams.get('v') === '1', // app aperta e in primo piano
+      isAdmin: user.is_admin ? 1 : 0,
       respond(list, shared) {
         if (!waiters.delete(w)) return;
         clearTimeout(w.timer);

@@ -38,8 +38,8 @@ function createDemoServer() {
   const reads = new Map(); // `${userId}:${convId}` -> lastReadId
   const waiters = new Set();
 
-  function post(conv, user, text, at = Date.now()) {
-    const m = { id: nextMsg++, conversationId: conv.id, userId: user.id, userName: user.name, text, deleted: false, createdAt: at, seq: ++seq };
+  function post(conv, user, text, at = Date.now(), replyTo = null) {
+    const m = { id: nextMsg++, conversationId: conv.id, userId: user.id, userName: user.name, text, deleted: false, createdAt: at, seq: ++seq, replyTo };
     messages.push(m);
     for (const w of [...waiters]) w();
     return m;
@@ -54,6 +54,7 @@ function createDemoServer() {
   }
 
   let me = null;
+  let info = '# Welcome aboard! 🚢\nThis is a preview of the Useful info page. Organisers can edit it.\n\n## Staff\n- Need help? Tap **Contact staff**.\n\n## Good to know\n- Breakfast 08:00–10:30, deck 9\n- Welcome party tonight at 21:00, deck 11';
 
   const err = (status, message) => { const e = new Error(message); e.status = status; return e; };
   const visible = (c) => c.type === 'public' || c.type === 'announce' || (me && c.members.has(me.id));
@@ -132,7 +133,9 @@ function createDemoServer() {
       if (c.type === 'announce' && !me.isAdmin) throw err(403, 'Only organisers can post here');
       const text = String(body.text || '').trim();
       if (!text) throw err(400, 'Empty message');
-      const msg = post(c, me, text);
+      const orig = body.replyTo ? messages.find((x) => x.id === Number(body.replyTo) && x.conversationId === c.id) : null;
+      const msg = post(c, me, text, Date.now(), orig ? { id: orig.id, userId: orig.userId, userName: orig.userName, text: orig.text.slice(0, 160), deleted: orig.deleted } : null);
+      if (c.type === 'staff') setTimeout(() => post(c, staff, 'Thanks for your message! A member of the team will get back to you here shortly. 🛟'), 2500);
       reads.set(`${me.id}:${c.id}`, msg.id);
       if (c.type === 'dm') botReply(c, users.get([...c.members].find((id) => id !== me.id)));
       if (c.type === 'group') botReply(c, users.get([...c.members].find((id) => id !== me.id)) || people[1]);
@@ -142,6 +145,13 @@ function createDemoServer() {
       const c = getConv(m[1]);
       reads.set(`${me.id}:${c.id}`, Math.max(reads.get(`${me.id}:${c.id}`) || 0, Number(body.messageId) || 0));
       return { ok: true };
+    }
+    if (method === 'GET' && p === '/api/info') return { content: info, updatedAt: null, updatedBy: null };
+    if (method === 'PUT' && p === '/api/info') { info = String(body.content || '').trim() || info; return { ok: true }; }
+    if (method === 'POST' && p === '/api/staff') {
+      let c = [...convs.values()].find((x) => x.type === 'staff' && x.members.has(me.id));
+      if (!c) c = addConv('staff', '🛟 Staff support', [me.id]);
+      return { id: c.id };
     }
     if (method === 'POST' && p === '/api/dm') {
       const other = users.get(Number(body.userId));

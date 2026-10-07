@@ -105,12 +105,13 @@
     } else {
       const m = conv.title.match(/^\p{Extended_Pictographic}/u);
       node.textContent = m ? m[0] : conv.type === 'group' ? '👥' : '#';
-      node.className = 'avatar av-' + (conv.type === 'announce' ? 'announce' : conv.type === 'group' ? 'group' : 'public');
+      node.className = 'avatar av-' + (conv.type === 'announce' ? 'announce' : conv.type === 'group' ? 'group' : conv.type === 'staff' ? 'staff' : 'public');
     }
   }
   // Titolo senza l'emoji iniziale (che è già nell'avatar).
   const plainTitle = (c) => (c.type === 'dm' ? c.title : c.title.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u, ''));
   const ICON_PIN = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M14 3l7 7-3 1-4 4 1 5-2 1-4-4-5 5-1-1 5-5-4-4 1-2 5 1 4-4z" fill="currentColor"/></svg>';
+  const ICON_REPLY = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M10 7L4 12l6 5M4 12h10a6 6 0 0 1 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const ICON_TRASH = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const isJumbo = (t) => t.length <= 12 && /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\u200D|\uFE0F|\s)+$/u.test(t) && (t.match(/\p{Extended_Pictographic}/gu) || []).length <= 3;
   function fmtTime(ts) {
@@ -558,8 +559,8 @@
   const TAB_TEST = {
     all: () => true,
     unread: (c) => c.unread > 0,
-    groups: (c) => c.type !== 'dm',
-    dm: (c) => c.type === 'dm',
+    groups: (c) => c.type !== 'dm' && c.type !== 'staff',
+    dm: (c) => c.type === 'dm' || c.type === 'staff',
   };
   for (const b of document.querySelectorAll('#tabs button')) {
     b.addEventListener('click', () => {
@@ -589,6 +590,7 @@
       const r1 = el('div', 'row');
       const name = el('span', 'name', plainTitle(c));
       if (c.type === 'announce') name.append(el('span', 'tag', 'Official'));
+      if (c.type === 'staff' && state.me.isAdmin && c.title !== '🛟 Staff support') name.append(el('span', 'tag', 'Support'));
       r1.append(name, el('span', 'time', c.lastMessage ? fmtListTime(c.lastMessage.createdAt) : ''));
       const r2 = el('div', 'row');
       let preview = '';
@@ -625,6 +627,7 @@
   async function openConv(id) {
     const conv = state.convs.get(id);
     if (!conv) return;
+    if (state.current !== id) cancelReply();
     state.current = id;
     // Su mobile il tasto "indietro" del telefono deve tornare alla lista, non uscire dal sito.
     try {
@@ -688,7 +691,10 @@
     if (!conv) return;
     $('#chat-title').textContent = plainTitle(conv);
     setAvatar($('#chat-avatar'), conv);
-    const sub = { public: 'Channel open to all participants', announce: 'Official updates from the organisers', group: 'Group · tap for details', dm: 'Private chat' };
+    const sub = {
+      public: 'Channel open to all participants', announce: 'Official updates from the organisers', group: 'Group · tap for details', dm: 'Private chat',
+      staff: state.me.isAdmin && conv.title !== '🛟 Staff support' ? 'Support chat · seen by all organisers' : 'Private chat with the organisers',
+    };
     $('#chat-subtitle').textContent = sub[conv.type] || '';
   }
 
@@ -732,6 +738,11 @@
   function helloCard() {
     const conv = state.convs.get(state.current);
     const card = el('div', 'chat-hello');
+    if (conv && conv.type === 'staff') {
+      card.append(el('span', 'big', '🛟'), el('strong', null, 'How can we help?'),
+        el('span', null, 'Write to the organisers here: everyone on the staff team sees your message and replies in this chat.'));
+      return card;
+    }
     card.append(el('span', 'big', conv && conv.type === 'dm' ? '👋' : '🌊'), el('strong', null, 'Break the ice'),
       el('span', null, conv && conv.type === 'dm' ? `Send the first message to ${conv.title.split(' ')[0]}` : 'Send the first message in this chat'));
     return card;
@@ -795,8 +806,26 @@
       a.addEventListener('click', (e) => { e.stopPropagation(); userMenu(m.userId, m.userName); });
       div.append(a);
     }
+    if (m.replyTo && !m.deleted) {
+      const qt = el('button', 'quote');
+      qt.type = 'button';
+      qt.append(el('span', 'quote-name c-' + palette(m.replyTo.userId), m.replyTo.userId === state.me.id ? 'You' : m.replyTo.userName),
+        el('span', 'quote-text', m.replyTo.deleted ? '🚫 Message deleted' : m.replyTo.text));
+      qt.addEventListener('click', (e) => { e.stopPropagation(); jumpTo(m.replyTo.id); });
+      div.append(qt);
+    }
     div.append(el('span', 'text' + (!m.deleted && isJumbo(m.text) ? ' jumbo' : ''), m.deleted ? '🚫 Message deleted' : m.text));
     div.append(el('span', 'meta', fmtTime(m.createdAt)));
+    const canReply = !m.deleted && conv && (conv.type !== 'announce' || state.me.isAdmin);
+    if (canReply) {
+      const rb = el('button', 'msg-act msg-reply');
+      rb.innerHTML = ICON_REPLY;
+      rb.title = 'Reply';
+      rb.setAttribute('aria-label', 'Reply');
+      rb.addEventListener('click', (e) => { e.stopPropagation(); div.classList.remove('show-actions'); startReply(m); });
+      div.append(rb);
+      div.addEventListener('click', () => div.classList.toggle('show-actions'));
+    }
     if (!m.deleted && (mine || state.me.isAdmin)) {
       const del = el('button', 'msg-del');
       del.innerHTML = ICON_TRASH;
@@ -807,7 +836,7 @@
         try { await api('DELETE', `/api/messages/${m.id}`); } catch (err) { toast(err.message); }
       });
       div.append(del);
-      div.addEventListener('click', () => div.classList.toggle('show-actions'));
+      if (!canReply) div.addEventListener('click', () => div.classList.toggle('show-actions'));
     }
     frag.append(div);
     return frag;
@@ -841,6 +870,61 @@
     return box.scrollHeight - box.scrollTop - box.clientHeight < 120;
   }
 
+  // ----------------------------------------------------------- Risposte
+  let replyTo = null;
+  function startReply(m) {
+    replyTo = m;
+    $('#reply-name').textContent = m.userId === state.me.id ? 'You' : m.userName;
+    $('#reply-name').className = 'c-' + palette(m.userId);
+    $('#reply-text').textContent = m.text;
+    $('#reply-bar').classList.remove('hidden');
+    $('#msg-input').focus();
+  }
+  function cancelReply() {
+    replyTo = null;
+    $('#reply-bar').classList.add('hidden');
+  }
+  $('#reply-cancel').addEventListener('click', cancelReply);
+
+  function jumpTo(id) {
+    const target = $('#messages').querySelector(`.msg[data-id="${id}"]`);
+    if (!target) return toast('That message is further up: scroll up to load it');
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.remove('flash');
+    void target.offsetWidth;
+    target.classList.add('flash');
+  }
+
+  // Su telefono: scorri una bolla verso destra per rispondere, come su WhatsApp.
+  (() => {
+    let startX = 0, startY = 0, bubble = null, dx = 0;
+    const box = $('#messages');
+    box.addEventListener('touchstart', (e) => {
+      const b = e.target.closest('.msg');
+      if (!b || b.classList.contains('system') || !b.querySelector('.msg-reply') || e.touches.length > 1) { bubble = null; return; }
+      bubble = b; startX = e.touches[0].clientX; startY = e.touches[0].clientY; dx = 0;
+    }, { passive: true });
+    box.addEventListener('touchmove', (e) => {
+      if (!bubble) return;
+      dx = e.touches[0].clientX - startX;
+      const dy = Math.abs(e.touches[0].clientY - startY);
+      if (dy > 30 && dx < 20) { bubble.style.transform = ''; bubble = null; return; }
+      if (dx > 0) bubble.style.transform = `translateX(${Math.min(dx, 80)}px)`;
+    }, { passive: true });
+    box.addEventListener('touchend', () => {
+      if (!bubble) return;
+      const b = bubble;
+      bubble = null;
+      b.style.transition = 'transform .15s';
+      b.style.transform = '';
+      setTimeout(() => { b.style.transition = ''; }, 160);
+      if (dx > 60) {
+        const msg = state.messages.get(state.current)?.get(Number(b.dataset.id));
+        if (msg) { startReply(msg); if (navigator.vibrate && prefs.vibrate) navigator.vibrate(15); }
+      }
+    });
+  })();
+
   // ------------------------------------------------------------- Invio
   const input = $('#msg-input');
   function autosize() {
@@ -861,7 +945,10 @@
     const btn = $('#send-btn');
     btn.disabled = true;
     try {
-      const { message } = await api('POST', `/api/conversations/${id}/messages`, { text });
+      const payload = { text };
+      if (replyTo && replyTo.conversationId === id) payload.replyTo = replyTo.id;
+      const { message } = await api('POST', `/api/conversations/${id}/messages`, payload);
+      cancelReply();
       input.value = '';
       autosize();
       syncComposer();
@@ -969,6 +1056,78 @@
     return { selected };
   }
 
+  // ------------------------------------------------- Contatta lo staff
+  async function contactStaff() {
+    try {
+      const { id } = await api('POST', '/api/staff');
+      closeModal();
+      if (!state.convs.has(id)) await refreshConvs();
+      openConv(id);
+    } catch (err) { toast(err.message); }
+  }
+
+  // ---------------------------------------------------- Info utili
+  // Mini-formattazione: "# Titolo", "## Sottotitolo", "- elenco", **grassetto**.
+  // Il testo viene sempre inserito come testo (mai come HTML).
+  function renderInfo(container, content) {
+    let list = null;
+    const inline = (parent, text) => {
+      text.split(/(\*\*[^*]+\*\*)/).forEach((part) => {
+        if (/^\*\*[^*]+\*\*$/.test(part)) parent.append(el('strong', null, part.slice(2, -2)));
+        else if (part) parent.append(document.createTextNode(part));
+      });
+    };
+    for (const raw of content.split('\n')) {
+      const line = raw.trimEnd();
+      if (/^- /.test(line)) {
+        if (!list) { list = el('ul', 'info-list'); container.append(list); }
+        const li = el('li'); inline(li, line.slice(2)); list.append(li);
+        continue;
+      }
+      list = null;
+      if (!line.trim()) continue;
+      let node;
+      if (/^## /.test(line)) { node = el('h4', 'info-h4'); inline(node, line.slice(3)); }
+      else if (/^# /.test(line)) { node = el('h3', 'info-h3'); inline(node, line.slice(2)); }
+      else { node = el('p', 'info-p'); inline(node, line); }
+      container.append(node);
+    }
+  }
+
+  async function usefulInfo() {
+    let info;
+    try { info = await api('GET', '/api/info'); } catch (err) { return toast(err.message); }
+    openModal('Useful info', (body) => {
+      const page = el('div', 'info-page');
+      renderInfo(page, info.content);
+      body.append(page);
+      if (info.updatedAt) {
+        const when = new Date(info.updatedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+        body.append(el('p', 'muted info-updated', `Updated ${when}${info.updatedBy ? ' by ' + info.updatedBy : ''}`));
+      }
+      body.append(menuButton('🛟  Contact staff', contactStaff, 'primary'));
+      if (state.me.isAdmin) body.append(menuButton('✏️  Edit this page (organisers)', () => editInfo(info.content)));
+    });
+  }
+
+  function editInfo(content) {
+    openModal('Edit info', (body) => {
+      body.append(el('p', 'muted', 'Use "# Title", "## Section", "- list item" and **bold**. Everyone sees the page as soon as you save.'));
+      const ta = el('textarea', 'info-editor');
+      ta.value = content;
+      ta.rows = 14;
+      ta.maxLength = 10000;
+      const save = el('button', 'btn', 'Save');
+      save.type = 'button';
+      save.addEventListener('click', async () => {
+        try { await api('PUT', '/api/info', { content: ta.value }); toast('Info page saved'); usefulInfo(); }
+        catch (err) { toast(err.message); }
+      });
+      body.append(ta, save);
+    });
+  }
+  $('#btn-info').addEventListener('click', usefulInfo);
+
   async function startDm(userId) {
     try {
       const { id } = await api('POST', '/api/dm', { userId });
@@ -982,6 +1141,7 @@
   $('#btn-new').addEventListener('click', () => {
     openModal('New chat', (body) => {
       body.append(menuButton('👥  Create a group', newGroup, 'primary'));
+      body.append(menuButton('🛟  Contact staff', contactStaff));
       if (state.me.isAdmin) body.append(menuButton('📣  New public channel (organisers)', newChannel));
       body.append(el('div', 'section-label', 'Message privately…'));
       userPicker(body, { onPick: (u) => startDm(u.id) });
@@ -1129,6 +1289,8 @@
           } catch (err) { toast(err.message); }
         }));
       }
+      body.append(menuButton('ℹ️  Useful info', usefulInfo));
+      body.append(menuButton('🛟  Contact staff', contactStaff));
       body.append(menuButton('🔔  Notifications, sound & vibration', notificationsDialog));
       body.append(menuButton('📲  Add to Home Screen', installGuide));
       body.append(menuButton('🚪  Sign out', async () => {

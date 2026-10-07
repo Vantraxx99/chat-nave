@@ -76,6 +76,14 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS push_user ON push_subscriptions(user_id);
 
+  -- Pagina "Useful info" scritta dagli organizzatori.
+  CREATE TABLE IF NOT EXISTS info (
+    id         TEXT PRIMARY KEY,
+    content    TEXT NOT NULL,
+    updated_by INTEGER REFERENCES users(id),
+    updated_at INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS reads (
     user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -83,6 +91,11 @@ db.exec(`
     PRIMARY KEY (user_id, conversation_id)
   );
 `);
+
+// Risposte ai messaggi: colonna aggiunta anche ai database già esistenti.
+if (!db.prepare(`PRAGMA table_info(messages)`).all().some((c) => c.name === 'reply_to')) {
+  db.exec(`ALTER TABLE messages ADD COLUMN reply_to INTEGER`);
+}
 
 // Unico canale di default: gli Annunci degli organizzatori. Per il resto i
 // partecipanti si creano i loro gruppi.

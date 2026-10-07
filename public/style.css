@@ -185,8 +185,9 @@ input, textarea { font: inherit; color: inherit; }
 .av-announce { background: #F8A0F8; font-size: 22px; border-radius: 16px; }
 .av-public { background: #07A2FF; font-size: 22px; border-radius: 16px; }
 .av-group { background: #EDFB8A; font-size: 22px; border-radius: 16px; }
+.av-staff { background: #07253D; font-size: 22px; border-radius: 16px; }
 .bar .avatar { width: 38px; height: 38px; font-size: 14px; box-shadow: 0 0 0 2px rgba(255, 255, 255, .55); }
-.bar .avatar.av-announce, .bar .avatar.av-public, .bar .avatar.av-group { font-size: 19px; border-radius: 12px; }
+.bar .avatar.av-announce, .bar .avatar.av-public, .bar .avatar.av-group, .bar .avatar.av-staff { font-size: 19px; border-radius: 12px; }
 
 /* ---------- Lista chat ---------- */
 .offline { background: #FFD66B; color: #3a2a00; font-size: 14px; font-weight: 600; padding: 7px 12px; text-align: center; }
@@ -453,3 +454,53 @@ input, textarea { font: inherit; color: inherit; }
   display: inline-flex; align-items: center; justify-content: center; box-shadow: var(--shadow);
 }
 .note { background: #FFF4CC; color: #4A3A00; border-radius: 12px; padding: 10px 12px; font-size: 14px; }
+
+/* Risposte */
+.quote {
+  display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left; margin: 2px 0 5px; padding: 6px 10px;
+  border: 0; border-left: 4px solid currentColor; border-radius: 10px; background: rgba(7, 37, 61, .07); color: var(--c0); cursor: pointer;
+}
+.msg.me .quote { background: rgba(7, 37, 61, .08); }
+.quote-name { font-size: 12.5px; font-weight: 800; }
+.quote-text {
+  color: var(--text); opacity: .8; font-size: 13.5px; line-height: 1.3; overflow: hidden; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: pre-wrap;
+}
+.msg.me .quote-text { color: var(--bubble-me-text); }
+.msg-reply {
+  position: absolute; top: 50%; transform: translateY(-50%); right: -38px; border: 0; background: var(--panel); color: var(--link);
+  width: 30px; height: 30px; border-radius: 50%; opacity: 0; box-shadow: var(--shadow);
+  display: inline-flex; align-items: center; justify-content: center; transition: opacity .15s;
+}
+.msg.me .msg-reply { right: auto; left: -38px; }
+.msg:has(.msg-reply) .msg-del { right: -74px; }
+.msg.me:has(.msg-reply) .msg-del { left: -74px; right: auto; }
+.msg:hover .msg-reply, .msg.show-actions .msg-reply { opacity: 1; }
+.msg.flash { animation: flash 1.2s ease-out; }
+@keyframes flash { 0%, 30% { box-shadow: 0 0 0 4px var(--sky); } 100% { box-shadow: var(--shadow); } }
+.reply-bar {
+  display: flex; align-items: center; gap: 8px; margin: 0 10px -2px; padding: 8px 6px 8px 12px; background: var(--panel);
+  border-radius: 16px 16px 6px 6px; box-shadow: var(--shadow); border-left: 4px solid var(--brand);
+}
+.reply-quote { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: 13.5px; }
+.reply-quote strong { font-size: 12.5px; }
+#reply-text { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-bar .icon { color: var(--muted); width: 34px; height: 34px; }
+
+/* Info utili */
+.info-page { display: flex; flex-direction: column; gap: 6px; line-height: 1.45; }
+.info-h3 { font-family: var(--display); font-weight: 400; font-size: 24px; letter-spacing: .4px; text-transform: uppercase; margin: 6px 0 0; }
+.info-h4 { font-size: 13px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; color: var(--link); margin: 10px 0 0; }
+.info-p { margin: 0; }
+.info-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.info-list li { background: var(--bg); border-radius: 12px; padding: 9px 12px; }
+.info-updated { font-size: 12px; margin-top: 4px !important; }
+.info-editor {
+  width: 100%; border: 1.5px solid var(--line); border-radius: 14px; padding: 12px; background: var(--bg); font-size: 15px;
+  line-height: 1.4; resize: vertical; min-height: 260px; font-family: ui-monospace, Menlo, monospace;
+}
+@media (max-width: 760px) {
+  .msg-reply { position: static; transform: none; opacity: 1; display: none; float: right; margin: 4px 0 0 8px; width: 26px; height: 26px; }
+  .msg.show-actions .msg-reply { display: inline-flex; }
+  .msg:has(.msg-reply) .msg-del, .msg.me:has(.msg-reply) .msg-del { right: auto; left: auto; }
+}

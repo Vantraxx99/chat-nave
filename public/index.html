@@ -61,6 +61,7 @@
         <img class="bar-logo" src="/wordmark.png" alt="Global Reunion, Cruise Edition" width="582" height="180">
         <div class="bar-actions">
           <span id="me-avatar" class="avatar"></span>
+          <button id="btn-info" class="icon" title="Useful info" aria-label="Useful info"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1.4" fill="currentColor"/></svg></button>
           <button id="btn-new" class="icon" title="New chat" aria-label="New chat"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 8v5M9.5 10.5h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
           <button id="btn-menu" class="icon" title="Menu" aria-label="Menu"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/></svg></button>
         </div>
@@ -107,6 +108,10 @@
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span id="to-bottom-n" class="n hidden"></span>
         </button>
+        <div id="reply-bar" class="reply-bar hidden">
+          <div class="reply-quote"><strong id="reply-name"></strong><span id="reply-text"></span></div>
+          <button id="reply-cancel" class="icon" type="button" aria-label="Cancel reply"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg></button>
+        </div>
         <form id="composer" class="composer">
           <textarea id="msg-input" rows="1" maxlength="1000" placeholder="Write a message"></textarea>
           <button id="send-btn" type="submit" aria-label="Send"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 12l16-8-6 16-2.5-6.5z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button>

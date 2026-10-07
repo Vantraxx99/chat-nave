@@ -63,6 +63,7 @@
       return {
         id: d.n, conversationId: d.c, userId: d.u, userName: d.name || (u && u.name) || 'Partecipante',
         text: d.del ? '' : d.t, deleted: !!d.del, createdAt: d.at, seq: s,
+        replyTo: d.rt ? { ...d.rt } : null,
       };
     }
 
@@ -114,10 +115,16 @@
       try { localStorage.setItem(readsKey, JSON.stringify(reads)); } catch {}
     };
 
-    const visible = (c) => c && (c.type === 'public' || c.type === 'announce' || c.members.includes(me().n));
+    const visible = (c) => c && (c.type === 'public' || c.type === 'announce' || c.members.includes(me().n) || (c.type === 'staff' && me().isAdmin));
     const convMsgs = (c) => [...msgs.values()].filter((m) => m.conversationId === c).sort((a, b) => a.id - b.id);
     const otherOf = (c) => c.members.find((id) => id !== me().n);
-    const title = (c) => (c.type === 'dm' ? (users.get(otherOf(c)) || { name: 'Chat' }).name : c.name);
+    const title = (c) => {
+      if (c.type === 'staff') {
+        const owner = users.get(c.members[0]);
+        return me().isAdmin && owner && owner.n !== me().n ? `🛟 ${owner.name}` : '🛟 Staff support';
+      }
+      return c.type === 'dm' ? (users.get(otherOf(c)) || { name: 'Chat' }).name : c.name;
+    };
 
     function summary(c) {
       const list = convMsgs(c.n);
@@ -138,10 +145,10 @@
       return c;
     }
 
-    async function post(c, text) {
+    async function post(c, text, rt = null) {
       const u = me();
       const n = newId();
-      const d = { n, c: c.n, u: u.n, name: u.name, t: text, at: Date.now(), del: false };
+      const d = { n, c: c.n, u: u.n, name: u.name, t: text, at: Date.now(), del: false, rt };
       await db.doc('msgs/' + n).set(d);
       setRead(c.n, n);
       return toMsg(d, 0);
@@ -202,12 +209,29 @@
         const text = String(body.text || '').trim();
         if (!text) throw err(400, 'Empty message');
         if (text.length > 1000) throw err(400, 'Maximum 1000 characters');
-        return { message: await post(c, text) };
+        const orig = body.replyTo ? msgs.get(Number(body.replyTo)) : null;
+        const rt = orig && orig.conversationId === c.n ? { id: orig.id, userId: orig.userId, userName: orig.userName, text: orig.text.slice(0, 160), deleted: orig.deleted } : null;
+        return { message: await post(c, text, rt) };
       }
       if ((m = p.match(/^\/api\/conversations\/(\d+)\/read$/))) {
         const c = getConv(m[1]);
         setRead(c.n, Number(body.messageId) || 0);
         return { ok: true };
+      }
+      if (method === 'GET' && p === '/api/info') {
+        const doc = await db.doc('info/main').get();
+        const d = doc.exists ? doc.data() : null;
+        return { content: d ? d.content : '# Welcome aboard! 🚢\nOrganisers: tap **Edit** to write this page.', updatedAt: d ? d.at : null, updatedBy: d ? d.by : null };
+      }
+      if (method === 'PUT' && p === '/api/info') {
+        if (!self.isAdmin) throw err(403, 'Organisers only');
+        await db.doc('info/main').set({ content: String(body.content || '').slice(0, 10000), at: Date.now(), by: self.name });
+        return { ok: true };
+      }
+      if (method === 'POST' && p === '/api/staff') {
+        let c = [...convs.values()].find((x) => x.type === 'staff' && x.members[0] === self.n);
+        if (!c) c = await createConv('staff', null, [self.n]);
+        return { id: c.n };
       }
       if (method === 'POST' && p === '/api/dm') {
         const other = users.get(Number(body.userId));
