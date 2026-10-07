@@ -87,7 +87,9 @@ body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none
 input, textarea, .msg .text { -webkit-user-select: text; user-select: text; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background: var(--bg);
+  /* Blu: iOS colora la barra di stato (e la barra di Safari) in base allo sfondo della pagina.
+     Lista e chat hanno i loro sfondi, quindi il blu si vede solo lì in alto. */
+  background: var(--brand);
   color: var(--text);
   font-size: 16px;
   -webkit-text-size-adjust: 100%;
