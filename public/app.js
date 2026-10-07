@@ -1130,6 +1130,21 @@
 
   // ------------------------------------------------------------- Invio
   const input = $('#msg-input');
+  // Come su WhatsApp: trascinando i messaggi verso il basso la tastiera si chiude.
+  (() => {
+    let y0 = null, x0 = 0;
+    const box = $('#messages');
+    box.addEventListener('touchstart', (e) => {
+      y0 = document.activeElement === input && e.touches.length === 1 ? e.touches[0].clientY : null;
+      if (y0 !== null) x0 = e.touches[0].clientX;
+    }, { passive: true });
+    box.addEventListener('touchmove', (e) => {
+      if (y0 === null) return;
+      const dy = e.touches[0].clientY - y0;
+      const dx = Math.abs(e.touches[0].clientX - x0);
+      if (dy > 24 && dy > dx * 1.5) { y0 = null; input.blur(); }
+    }, { passive: true });
+  })();
   function autosize() {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 140) + 'px';
