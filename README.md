@@ -9,7 +9,7 @@ sbloccato** dalla nave.
 
 - **Registrazione semplice**: nome, cognome ed email. La prima volta ci si registra, le volte dopo si rientra con la stessa email e lo stesso cognome.
 - **📢 Annunci**: canale in cui scrivono solo gli organizzatori e che tutti leggono.
-- **🚢 Tutti a bordo**: canale aperto a tutti.
+- Non c'è un canale generale: chi vuole chattare in gruppo crea il suo gruppo. Gli organizzatori possono comunque aprire canali per tutti dal menu "Nuova chat".
 - **Chat private 1 a 1**: si cerca una persona per nome tra i partecipanti. Le email non sono mai visibili agli altri.
 - **Gruppi**: per esempio "Cabina 512" o "Gita Mykonos". Si possono aggiungere persone e uscire dal gruppo.
 - Messaggi non letti, separatori per giorno e il conteggio nel titolo della scheda.

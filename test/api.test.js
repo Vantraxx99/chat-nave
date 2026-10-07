@@ -50,11 +50,15 @@ test('flusso completo: login, canali, DM, gruppi, polling, moderazione', async (
 
   const me = (await anna('GET', '/api/me')).body;
   assert.equal(me.user.name, 'Anna Bianchi');
-  const general = me.conversations.find((c) => c.type === 'public');
-  const announce = me.conversations.find((c) => c.type === 'announce');
-  assert.ok(general && announce);
+  // Di default c'è solo il canale Annunci: niente canale generale.
+  assert.deepEqual(me.conversations.map((c) => c.type), ['announce']);
+  const announce = me.conversations[0];
 
-  // Bruno resta in attesa; il messaggio di Anna nel canale generale lo sveglia.
+  // I gruppi li creano i partecipanti.
+  const ids = Object.fromEntries((await anna('GET', '/api/users?q=')).body.users.map((u) => [u.name, u.id]));
+  const general = { id: (await anna('POST', '/api/groups', { name: 'Ponte 7', memberIds: [ids['Bruno Verdi'], ids['Carla Staff']] })).body.id };
+
+  // Bruno resta in attesa; il messaggio di Anna nel gruppo lo sveglia.
   const cursor = (await bruno('GET', '/api/me')).body.cursor;
   const pending = bruno('GET', `/api/poll?since=${cursor}`);
   await new Promise((r) => setTimeout(r, 50));
@@ -121,7 +125,7 @@ test('lista partecipanti e codice evento', async () => {
 test('protezioni di base', async () => {
   const c = client();
   await c('POST', '/api/register', reg('Anna', 'Bianchi', 'anna@x.it'));
-  const general = (await c('GET', '/api/me')).body.conversations.find((x) => x.type === 'public');
+  const general = { id: (await c('POST', '/api/groups', { name: 'Prova', memberIds: [] })).body.id };
   assert.equal((await c('POST', `/api/conversations/${general.id}/messages`, { text: 'a'.repeat(1001) })).status, 400);
   // Richieste non-JSON rifiutate (CSRF da form)
   const res = await fetch(`${base}/api/register`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'email=anna@x.it' });

@@ -74,14 +74,14 @@ db.exec(`
   );
 `);
 
-// Canali di default, creati una sola volta.
+// Unico canale di default: gli Annunci degli organizzatori. Per il resto i
+// partecipanti si creano i loro gruppi.
 function ensureDefaultChannels() {
-  const count = db.prepare(`SELECT COUNT(*) AS n FROM conversations WHERE type IN ('public','announce')`).get().n;
+  // Il vecchio canale generale "Tutti a bordo" (creato dal sistema) non esiste più.
+  db.prepare(`DELETE FROM conversations WHERE type = 'public' AND name = '🚢 Tutti a bordo' AND created_by IS NULL`).run();
+  const count = db.prepare(`SELECT COUNT(*) AS n FROM conversations WHERE type = 'announce' AND created_by IS NULL`).get().n;
   if (count > 0) return;
-  const now = Date.now();
-  const ins = db.prepare(`INSERT INTO conversations (type, name, created_at) VALUES (?, ?, ?)`);
-  ins.run('announce', '📢 Annunci', now);
-  ins.run('public', '🚢 Tutti a bordo', now);
+  db.prepare(`INSERT INTO conversations (type, name, created_at) VALUES ('announce', '📢 Annunci', ?)`).run(Date.now());
 }
 ensureDefaultChannels();
 

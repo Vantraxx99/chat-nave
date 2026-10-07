@@ -30,8 +30,8 @@ function createDemoServer() {
   let nextConv = 1;
   const addConv = (type, name, members = []) => { const c = { id: nextConv++, type, name, members: new Set(members) }; convs.set(c.id, c); return c; };
   const announce = addConv('announce', '📢 Annunci');
-  const general = addConv('public', '🚢 Tutti a bordo');
-  const party = addConv('public', '🎶 Festa sul ponte');
+  // Un gruppo creato dai partecipanti: chi entra nell'anteprima viene aggiunto.
+  const party = addConv('group', '🎶 Festa sul ponte', people.slice(0, 12).map((u) => u.id));
 
   const messages = [];
   let nextMsg = 1, seq = 0;
@@ -47,12 +47,11 @@ function createDemoServer() {
   // Storia iniziale
   post(announce, staff, 'Benvenuti a bordo della Global Reunion – Cruise Edition! 🚢 Qui troverete tutte le comunicazioni ufficiali.', now - 5 * 3600e3);
   post(announce, staff, '🕗 Stasera alle 21:00 party di benvenuto sul ponte 11. Dress code: bianco!', now - 2 * 3600e3);
-  for (let i = 0; i < 14; i++) {
-    const u = people[(i * 7) % people.length];
-    post(general, u, CHATTER[i % CHATTER.length], now - (14 - i) * 9 * 60e3);
+  post(party, people[0], `👋 ${people[0].name} ha creato il gruppo "🎶 Festa sul ponte"`, now - 3 * 3600e3);
+  for (let i = 0; i < 12; i++) {
+    const u = people[(i * 5) % 12];
+    post(party, u, CHATTER[i % CHATTER.length], now - (12 - i) * 9 * 60e3);
   }
-  post(party, people[3], 'Playlist per stasera: mandate le vostre canzoni qui 🎵', now - 50 * 60e3);
-  post(party, people[8], 'Mamma Mia degli ABBA, obbligatoria 💃', now - 45 * 60e3);
 
   let me = null;
 
@@ -86,11 +85,11 @@ function createDemoServer() {
     }, 1500 + Math.random() * 2500);
   }
 
-  // Un po' di vita nel canale generale
+  // Un po' di vita nel gruppo
   setInterval(() => {
     if (!me || Math.random() < 0.4) return;
-    const u = people[Math.floor(Math.random() * people.length)];
-    post(general, u, CHATTER[Math.floor(Math.random() * CHATTER.length)]);
+    const u = people[Math.floor(Math.random() * 12)];
+    post(party, u, CHATTER[Math.floor(Math.random() * CHATTER.length)]);
   }, 9000);
 
   async function request(method, url, body = {}) {
@@ -106,6 +105,7 @@ function createDemoServer() {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw err(400, 'Email non valida');
       // In anteprima sei un organizzatore, così vedi tutte le funzioni.
       me = addUser(`${first} ${last}`, { isAdmin: true });
+      party.members.add(me.id);
       setTimeout(() => {
         const dm = addConv('dm', null, [me.id, people[0].id]);
         post(dm, people[0], `Ciao ${first}! Ci vediamo stasera alla festa? 🎉`);

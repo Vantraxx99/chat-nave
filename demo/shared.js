@@ -101,7 +101,8 @@
 
     // Canali di default con id fissi: crearli due volte non fa danni.
     if (!convs.has(1)) await db.doc('convs/1').set({ n: 1, type: 'announce', name: '📢 Annunci', members: [] });
-    if (!convs.has(2)) await db.doc('convs/2').set({ n: 2, type: 'public', name: '🚢 Tutti a bordo', members: [] });
+    // Il canale generale "Tutti a bordo" non esiste più: lo togliamo se c'era.
+    if (convs.has(2) && convs.get(2).type === 'public') { await db.doc('convs/2').delete(); convs.delete(2); }
 
     // Messaggi letti: per persona, in questo browser.
     const readsKey = 'gr-reads-' + uid;
