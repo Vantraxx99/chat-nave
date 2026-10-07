@@ -20,6 +20,17 @@
   };
 
   // ------------------------------------------------------------------ API
+  // Niente zoom, come in un'app: iOS ignora user-scalable=no per il pizzico, quindi
+  // blocchiamo anche i gesti a due dita e Ctrl+rotella sul computer.
+  for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
+    document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+  }
+  document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+  document.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '0'].includes(e.key)) e.preventDefault();
+  });
+
   // In anteprima (demo.js) le chiamate vanno a un server simulato nel browser.
   const demo = window.DEMO_SERVER || null;
 

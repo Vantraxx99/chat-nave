@@ -73,7 +73,11 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; }
+/* Comportamento da app: niente zoom con doppio tocco, niente "rimbalzo" della pagina,
+   niente selezione accidentale dell'interfaccia (il testo dei messaggi resta selezionabile). */
+html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; touch-action: manipulation; }
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, .msg .text { -webkit-user-select: text; user-select: text; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background: var(--bg);
