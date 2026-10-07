@@ -20,7 +20,7 @@ sbloccato** dalla nave.
 
 | Vincolo | Scelta |
 |---|---|
-| La nave sblocca solo gli URL richiesti | **Tutto** è servito dallo stesso dominio: niente CDN, Google Fonts o analytics. Basta far sbloccare un solo dominio (es. `chat.tuoevento.it`). |
+| La nave sblocca solo gli URL richiesti | **Tutto** è servito dallo stesso dominio: niente CDN, Google Fonts o analytics. Basta far sbloccare un solo dominio: `globalreunionchat.com`. |
 | I proxy delle navi spesso bloccano i WebSocket | Il tempo reale usa il **long-polling HTTP** su HTTPS standard: richieste da massimo 25 secondi, sotto i timeout tipici dei proxy. |
 | La banda satellitare è poca e condivisa da migliaia di persone | Solo testo ed emoji (niente foto né video), risposte compresse con gzip. Il codice pesa circa 12 KB, le immagini circa 60 KB e restano in cache sul telefono per una settimana. |
 | Tutti escono dallo stesso IP della nave | I limiti anti-abuso contano solo i tentativi sbagliati, non gli accessi corretti. |
@@ -107,8 +107,8 @@ bordo**, quando hanno ancora internet.
 Serve un servizio di invio email; su Render (Environment) impostate:
 
 - `BREVO_API_KEY` (Brevo) **oppure** `RESEND_API_KEY` (Resend)
-- `MAIL_FROM`, il mittente, es. `Global Reunion <chat@vostrodominio.it>`: deve essere un
-  indirizzo/dominio verificato sul servizio scelto.
+- `MAIL_FROM`, il mittente: `Global Reunion <noreply@globalreunionchat.com>` (dominio
+  verificato su Resend).
 
 Senza queste variabili il codice non viene chiesto (comodo per le prove).
 A bordo, se qualcuno dimentica la password, un organizzatore apre il suo profilo →
@@ -208,8 +208,8 @@ docker exec <container> node scripts/import.js partecipanti.csv
 
 ### Prima di partire: checklist
 
-1. Chiedete alla nave di sbloccare il vostro dominio, per esempio `chat.tuoevento.it`.
-   Il sito non usa nessun altro dominio.
+1. Chiedete alla nave di sbloccare il dominio della chat, `globalreunionchat.com`
+   (e `www.globalreunionchat.com`, che rimanda lì). Il sito non usa nessun altro dominio.
 2. Chiedete se il proxy della nave **chiude le richieste lunghe**. Il sito tiene
    aperte richieste fino a 25 secondi. Se le chiudono prima, la chat funziona lo
    stesso, ma con qualche secondo di ritardo.
