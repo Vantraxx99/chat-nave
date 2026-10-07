@@ -50,26 +50,13 @@
 
   // Su iPhone la tastiera non ridimensiona la pagina: usiamo l'area visibile reale,
   // così intestazione e campo di scrittura restano al loro posto.
-  // Aperta dalla Home con la barra di stato trasparente, iOS dà un'area visibile più corta
-  // dello schermo esattamente dell'altezza della barra di stato (safe-area in alto): senza
-  // correzione resta una fascia vuota in basso (e sopra la tastiera). Se a tastiera chiusa
-  // area + barra = schermo, il difetto c'è e aggiungiamo sempre quell'altezza.
+  // (Aperta dalla Home, iOS può lasciare sotto la pagina una fascia che colora lui con il
+  // blu dell'evento: per questo le barre in basso dell'app sono blu, così si fondono.)
   const vv = window.visualViewport;
   if (vv) {
-    const probe = document.createElement('div');
-    probe.style.cssText = 'position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;height:env(safe-area-inset-top,0px)';
-    document.documentElement.appendChild(probe);
-    let extra = 0;
     const typing = () => { const a = document.activeElement; return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'); };
     const fit = () => {
-      const top = probe.offsetHeight || 0;
-      if (!typing()) {
-        const portrait = window.innerWidth < window.innerHeight;
-        const screenH = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
-        extra = top > 0 && Math.abs(vv.height + top - screenH) <= 2 ? top : 0;
-      }
-      const h = vv.height + extra;
-      document.documentElement.style.setProperty('--app-h', h + 'px');
+      document.documentElement.style.setProperty('--app-h', vv.height + 'px');
       // Con la tastiera aperta il margine per la barretta in basso dell'iPhone non serve.
       document.documentElement.classList.toggle('kb-open', typing() && vv.height < (screen.height || 9999) * 0.75);
       if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
@@ -77,7 +64,6 @@
     vv.addEventListener('resize', fit);
     vv.addEventListener('scroll', fit);
     document.addEventListener('focusout', () => setTimeout(fit, 50));
-    window.addEventListener('orientationchange', () => setTimeout(fit, 300));
     fit();
   }
   document.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
