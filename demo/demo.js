@@ -2,6 +2,7 @@
 // Server simulato nel browser, usato SOLO per l'anteprima statica.
 // Imita le API di src/server.js e popola la chat con partecipanti finti.
 (() => {
+function createDemoServer() {
   const NAMES = [
     'Giulia Romano', 'Luca Ferri', 'Sara Conti', 'Marco Galli', 'Chiara Costa', 'Davide Greco',
     'Elena Marino', 'Paolo Rizzo', 'Francesca Lombardi', 'Andrea Moretti', 'Martina Barbieri',
@@ -208,5 +209,10 @@
     });
   }
 
-  window.DEMO_SERVER = { request, poll };
+  return { request, poll };
+}
+
+window.createDemoServer = createDemoServer;
+// Se shared.js ha già preparato il server condiviso, la simulazione parte solo come ripiego.
+if (!window.DEMO_SERVER) window.DEMO_SERVER = createDemoServer();
 })();

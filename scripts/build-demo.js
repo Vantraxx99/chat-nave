@@ -2,17 +2,25 @@
 'use strict';
 // Genera un'anteprima statica in un unico file HTML (server simulato nel browser).
 //
-//   node scripts/build-demo.js [output.html]
+//   node scripts/build-demo.js [output.html] [--shared]
 //
 // Serve solo per far provare grafica e funzionamento senza mettere online il server:
 // i messaggi restano nel browser di chi la apre e gli altri partecipanti sono finti.
+// Con --shared l'anteprima, pubblicata come artifact su claude.ai con la capability
+// "db", diventa una chat vera tra le persone invitate (vedi demo/shared.js).
 
 const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
-const out = process.argv[2] || path.join(root, 'demo', 'anteprima.html');
+const args = process.argv.slice(2);
+const shared = args.includes('--shared');
+const out = args.find((a) => !a.startsWith('--')) || path.join(root, 'demo', 'anteprima.html');
+const organizers = read('organizzatori.txt').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+const sharedScript = shared
+  ? `<script>\nwindow.ORGANIZER_EMAILS = ${JSON.stringify(organizers)};\n${read('demo/shared.js')}\n</script>`
+  : '';
 
 const index = read('public/index.html');
 const body = index.slice(index.indexOf('<body>') + 6, index.indexOf('<script src="/app.js">')).trim();
@@ -36,6 +44,7 @@ ${extraCss}
 </style>
 ${body}
 ${banner}
+${sharedScript}
 <script>
 ${read('demo/demo.js')}
 </script>

@@ -107,6 +107,10 @@ npm run admin -- stats
 
 - **Anteprima statica**: `node scripts/build-demo.js` genera `demo/anteprima.html`, un file
   unico che funziona senza server. Gli altri partecipanti e i messaggi sono simulati.
+- **Prova condivisa su claude.ai**: con `node scripts/build-demo.js out.html --shared`
+  l'anteprima, pubblicata come artifact con l'archivio condiviso (`db`), diventa una chat
+  vera tra le persone invitate alla pagina come Editor. Vale solo per le prove: i controlli
+  sono fatti nel browser, quindi chi ha accesso può leggere anche le chat private.
 - **In locale**: `npm run dev`, poi apri http://localhost:3000. Requisito: Node.js **22.13 o più recente**.
   Non ci sono dipendenze npm: il database è SQLite, già incluso in Node.
 
