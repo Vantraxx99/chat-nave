@@ -34,8 +34,12 @@ const extraCss = `
 `;
 // Le immagini vengono incorporate come data URI: l'anteprima è un unico file.
 const dataUri = (file, type) => `data:${type};base64,${fs.readFileSync(path.join(root, 'public', file)).toString('base64')}`;
-const IMAGES = { '/wordmark.png': dataUri('wordmark.png', 'image/png'), '/waves.jpg': dataUri('waves.jpg', 'image/jpeg') };
-const inlineImages = (text) => text.replace(/\/(wordmark\.png|waves\.jpg)/g, (m) => IMAGES[m]);
+const IMAGES = {
+  '/wordmark.png': dataUri('wordmark.png', 'image/png'),
+  '/waves.jpg': dataUri('waves.jpg', 'image/jpeg'),
+  '/anton.woff2': dataUri('anton.woff2', 'font/woff2'),
+};
+const inlineImages = (text) => text.replace(/\/(wordmark\.png|waves\.jpg|anton\.woff2)/g, (m) => IMAGES[m]);
 
 let html = `<title>${title}</title>
 <style>

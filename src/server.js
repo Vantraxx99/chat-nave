@@ -592,11 +592,11 @@ route('GET', '/healthz', async () => ({ ok: true }));
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/manifest+json',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.ico': 'image/x-icon',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8',
 };
 // Le immagini cambiano di rado: i telefoni le tengono in cache una settimana,
 // così via satellite si scaricano una volta sola.
-const LONG_CACHE = new Set(['.png', '.jpg', '.svg']);
+const LONG_CACHE = new Set(['.png', '.jpg', '.svg', '.woff2']);
 const staticCache = new Map();
 function loadStatic(rel) {
   if (staticCache.has(rel)) return staticCache.get(rel);
@@ -609,7 +609,7 @@ function loadStatic(rel) {
     gz: zlib.gzipSync(raw, { level: 9 }),
     type: MIME[path.extname(file)] || 'application/octet-stream',
     cache: LONG_CACHE.has(path.extname(file)) ? 'public, max-age=604800' : 'no-cache',
-    compress: !['.png', '.jpg'].includes(path.extname(file)),
+    compress: !['.png', '.jpg', '.woff2'].includes(path.extname(file)),
     etag: '"' + crypto.createHash('sha1').update(raw).digest('base64url').slice(0, 16) + '"',
   };
   if (process.env.NODE_ENV === 'production') staticCache.set(rel, entry);

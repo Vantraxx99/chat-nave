@@ -51,18 +51,24 @@
 
   // ------------------------------------------------------------ Utility
   const initials = (name) => (name || '?').replace(/[^\p{L}\p{N}\s]/gu, '').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || (name || '?').slice(0, 2);
-  const hue = (n) => (Number(n) * 137) % 360;
+  // Colori dell'evento assegnati in modo stabile a ogni persona (avatar e nome nelle chat).
+  const palette = (n) => Math.abs(Math.floor(Number(n) || 0)) % 5;
   function setAvatar(node, conv) {
     node.textContent = '';
     if (conv.type === 'dm' || conv.type === 'user') {
       node.textContent = initials(conv.title);
-      node.style.background = `hsl(${hue(conv.otherUserId || conv.id)} 45% 42%)`;
+      node.className = 'avatar av-' + palette(conv.otherUserId || conv.id);
     } else {
       const m = conv.title.match(/^\p{Extended_Pictographic}/u);
       node.textContent = m ? m[0] : conv.type === 'group' ? '👥' : '#';
-      node.style.background = '';
+      node.className = 'avatar av-' + (conv.type === 'announce' ? 'announce' : conv.type === 'group' ? 'group' : 'public');
     }
   }
+  // Titolo senza l'emoji iniziale (che è già nell'avatar).
+  const plainTitle = (c) => (c.type === 'dm' ? c.title : c.title.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u, ''));
+  const ICON_PIN = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M14 3l7 7-3 1-4 4 1 5-2 1-4-4-5 5-1-1 5-5-4-4 1-2 5 1 4-4z" fill="currentColor"/></svg>';
+  const ICON_TRASH = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const isJumbo = (t) => t.length <= 12 && /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|\u200D|\uFE0F|\s)+$/u.test(t) && (t.match(/\p{Extended_Pictographic}/gu) || []).length <= 3;
   function fmtTime(ts) {
     const d = new Date(ts);
     return d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
@@ -234,14 +240,32 @@
     });
   }
 
+  let tab = 'all';
+  const TAB_TEST = {
+    all: () => true,
+    unread: (c) => c.unread > 0,
+    groups: (c) => c.type !== 'dm',
+    dm: (c) => c.type === 'dm',
+  };
+  for (const b of document.querySelectorAll('#tabs button')) {
+    b.addEventListener('click', () => {
+      tab = b.dataset.tab;
+      for (const x of document.querySelectorAll('#tabs button')) x.classList.toggle('on', x === b);
+      renderConvList();
+    });
+  }
+
   function renderConvList() {
     const ul = $('#conv-list');
     const filter = $('#conv-filter').value.trim().toLowerCase();
     ul.textContent = '';
     let totalUnread = 0;
+    let shown = 0;
     for (const c of sortedConvs()) {
       totalUnread += c.unread || 0;
       if (filter && !c.title.toLowerCase().includes(filter)) continue;
+      if (!TAB_TEST[tab](c)) continue;
+      shown++;
       const li = el('li');
       if (c.id === state.current) li.classList.add('active');
       if (c.unread) li.classList.add('unread');
@@ -249,7 +273,9 @@
       setAvatar(av, c);
       const info = el('div', 'info');
       const r1 = el('div', 'row');
-      r1.append(el('span', 'name', c.title), el('span', 'time', c.lastMessage ? fmtListTime(c.lastMessage.createdAt) : ''));
+      const name = el('span', 'name', plainTitle(c));
+      if (c.type === 'announce') name.append(el('span', 'tag', 'Ufficiale'));
+      r1.append(name, el('span', 'time', c.lastMessage ? fmtListTime(c.lastMessage.createdAt) : ''));
       const r2 = el('div', 'row');
       let preview = '';
       if (c.lastMessage) {
@@ -259,11 +285,21 @@
       }
       r2.append(el('span', 'preview', preview));
       if (c.unread) r2.append(el('span', 'badge', c.unread > 99 ? '99+' : String(c.unread)));
+      else if (c.type === 'announce' || c.type === 'public') { const pin = el('span', 'pin'); pin.innerHTML = ICON_PIN; pin.title = 'In evidenza'; r2.append(pin); }
       info.append(r1, r2);
       li.append(av, info);
       li.addEventListener('click', () => openConv(c.id));
       ul.append(li);
     }
+    if (!shown) {
+      const empty = el('li', 'list-empty');
+      empty.append(el('span', 'big', tab === 'unread' ? '🎉' : '🌊'), document.createTextNode(
+        filter ? 'Nessuna chat con questo nome' : tab === 'unread' ? 'Tutto letto, sei in pari!' : tab === 'dm' ? 'Nessuna chat privata. Premi «Nuova chat» per scrivere a qualcuno.' : 'Ancora niente qui'));
+      ul.append(empty);
+    }
+    const unreadTab = document.querySelector('#tabs [data-tab="unread"]');
+    unreadTab.textContent = 'Non lette';
+    if (totalUnread) unreadTab.append(el('span', 'n', totalUnread > 99 ? '99+' : String(totalUnread)));
     document.title = (totalUnread ? `(${totalUnread}) ` : '') + 'Global Reunion · Cruise Edition';
   }
   $('#conv-filter').addEventListener('input', renderConvList);
@@ -308,6 +344,9 @@
       if (state.current !== id) return;
     }
     renderAllMessages(true);
+    missed = 0;
+    updateToBottom();
+    syncComposer();
     markRead();
     if (window.matchMedia('(min-width: 761px)').matches) $('#msg-input').focus();
   }
@@ -330,7 +369,7 @@
   function renderChatHeader() {
     const conv = state.convs.get(state.current);
     if (!conv) return;
-    $('#chat-title').textContent = conv.title;
+    $('#chat-title').textContent = plainTitle(conv);
     setAvatar($('#chat-avatar'), conv);
     const sub = { public: 'Canale aperto a tutti i partecipanti', announce: 'Comunicazioni degli organizzatori', group: 'Gruppo · tocca per i dettagli', dm: 'Chat privata' };
     $('#chat-subtitle').textContent = sub[conv.type] || '';
@@ -366,10 +405,34 @@
       box.append(b);
     }
     let prev = null;
-    for (const m of sortedMsgs(id)) { box.append(buildMessage(m, prev)); prev = m; }
+    const list = sortedMsgs(id);
+    for (const m of list) { box.append(buildMessage(m, prev)); prev = m; }
+    if (!list.length && !state.hasMore.get(id)) box.append(helloCard());
     if (scrollBottom) box.scrollTop = box.scrollHeight;
     else box.scrollTop = box.scrollHeight - prevHeight + prevTop;
   }
+
+  function helloCard() {
+    const conv = state.convs.get(state.current);
+    const card = el('div', 'chat-hello');
+    card.append(el('span', 'big', conv && conv.type === 'dm' ? '👋' : '🌊'), el('strong', null, 'Rompi il ghiaccio'),
+      el('span', null, conv && conv.type === 'dm' ? `Scrivi il primo messaggio a ${conv.title.split(' ')[0]}` : 'Scrivi il primo messaggio della chat'));
+    return card;
+  }
+
+  // Pulsante per tornare agli ultimi messaggi, con il numero di quelli arrivati nel frattempo.
+  let missed = 0;
+  function updateToBottom() {
+    const show = !atBottom();
+    if (!show) missed = 0;
+    $('#to-bottom').classList.toggle('hidden', !show);
+    $('#to-bottom-n').classList.toggle('hidden', !missed);
+    $('#to-bottom-n').textContent = missed > 99 ? '99+' : String(missed);
+  }
+  $('#to-bottom').addEventListener('click', () => {
+    const box = $('#messages');
+    box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+  });
 
   async function loadOlder() {
     const id = state.current;
@@ -384,6 +447,7 @@
     } catch (err) { toast(err.message); }
   }
   $('#messages').addEventListener('scroll', (e) => {
+    updateToBottom();
     if (e.target.scrollTop < 40 && state.hasMore.get(state.current) && !loadOlder.busy) {
       loadOlder.busy = true;
       loadOlder().finally(() => { loadOlder.busy = false; });
@@ -410,15 +474,15 @@
     const sameAuthor = prev && prev.userId === m.userId && !isSystemText(prev.text) && m.createdAt - prev.createdAt < 5 * 60_000;
     if (sameAuthor) div.classList.add('cont');
     if (!mine && conv && conv.type !== 'dm' && !sameAuthor) {
-      const a = el('span', 'author', m.userName);
-      a.style.color = `hsl(${hue(m.userId)} 55% 40%)`;
+      const a = el('span', 'author c-' + palette(m.userId), m.userName);
       a.addEventListener('click', (e) => { e.stopPropagation(); userMenu(m.userId, m.userName); });
       div.append(a);
     }
-    div.append(el('span', 'text', m.deleted ? '🚫 Messaggio eliminato' : m.text));
+    div.append(el('span', 'text' + (!m.deleted && isJumbo(m.text) ? ' jumbo' : ''), m.deleted ? '🚫 Messaggio eliminato' : m.text));
     div.append(el('span', 'meta', fmtTime(m.createdAt)));
     if (!m.deleted && (mine || state.me.isAdmin)) {
-      const del = el('button', 'msg-del', '🗑');
+      const del = el('button', 'msg-del');
+      del.innerHTML = ICON_TRASH;
       del.title = 'Elimina';
       del.addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -447,8 +511,13 @@
     if (last && last.id !== m.id) return renderAllMessages(atBottom()); // arrivato fuori ordine
     const nearBottom = atBottom();
     const prev = list[list.length - 2] || null;
+    const hello = box.querySelector('.chat-hello');
+    if (hello) hello.remove();
     box.append(buildMessage(m, prev));
+    const added = box.lastElementChild;
+    if (added) added.classList.add('appear');
     if (nearBottom || m.userId === state.me.id) box.scrollTop = box.scrollHeight;
+    else { missed++; updateToBottom(); }
   }
   function atBottom() {
     const box = $('#messages');
@@ -461,7 +530,8 @@
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 140) + 'px';
   }
-  input.addEventListener('input', autosize);
+  const syncComposer = () => $('#composer').classList.toggle('has-text', input.value.trim().length > 0);
+  input.addEventListener('input', () => { autosize(); syncComposer(); });
   input.addEventListener('keydown', (e) => {
     const touch = window.matchMedia('(pointer: coarse)').matches;
     if (e.key === 'Enter' && !e.shiftKey && !touch) { e.preventDefault(); $('#composer').requestSubmit(); }
@@ -477,6 +547,7 @@
       const { message } = await api('POST', `/api/conversations/${id}/messages`, { text });
       input.value = '';
       autosize();
+      syncComposer();
       handleIncoming([message]);
     } catch (err) {
       toast(err.message);
@@ -593,8 +664,9 @@
   $('#fab-new').addEventListener('click', () => $('#btn-new').click());
   $('#btn-new').addEventListener('click', () => {
     openModal('Nuova chat', (body) => {
-      body.append(menuButton('👥  Nuovo gruppo', newGroup));
+      body.append(menuButton('👥  Crea un gruppo', newGroup, 'primary'));
       if (state.me.isAdmin) body.append(menuButton('📣  Nuovo canale pubblico (organizzatori)', newChannel));
+      body.append(el('div', 'section-label', 'Scrivi in privato a…'));
       userPicker(body, { onPick: (u) => startDm(u.id) });
     });
   });
