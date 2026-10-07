@@ -119,7 +119,7 @@ function createDemoServer() {
     }
     if (method === 'GET' && p === '/api/users') {
       const q = (u.searchParams.get('q') || '').toLowerCase();
-      return { users: [...users.values()].filter((x) => x.id !== me.id && !x.banned && x.name.toLowerCase().includes(q)).slice(0, 30).map(({ id, name }) => ({ id, name })) };
+      return { users: [...users.values()].filter((x) => x.id !== me.id && !x.banned && x.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 30).map(({ id, name }) => ({ id, name })) };
     }
     if ((m = p.match(/^\/api\/conversations\/(\d+)$/)) && method === 'GET') return summary(getConv(m[1]));
     if ((m = p.match(/^\/api\/conversations\/(\d+)\/messages$/))) {

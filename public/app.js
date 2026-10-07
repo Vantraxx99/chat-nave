@@ -544,8 +544,8 @@
     const chips = el('div', 'chips');
     let timer = null;
     async function run() {
+      // Senza testo mostra i primi partecipanti in ordine alfabetico.
       const term = search.value.trim();
-      if (term.length < 2) { ul.textContent = ''; ul.dataset.empty = 'Scrivi almeno 2 lettere'; return; }
       try {
         const { users } = await api('GET', '/api/users?q=' + encodeURIComponent(term));
         ul.textContent = '';
@@ -576,6 +576,7 @@
     }
     search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 250); });
     body.append(search, chips, ul);
+    run();
     setTimeout(() => search.focus(), 50);
     return { selected };
   }

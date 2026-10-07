@@ -186,7 +186,7 @@
       }
       if (method === 'GET' && p === '/api/users') {
         const q = (u.searchParams.get('q') || '').toLowerCase();
-        return { users: [...users.values()].filter((x) => x.n !== self.n && !bans.has(x.n) && x.name.toLowerCase().includes(q)).slice(0, 30).map((x) => ({ id: x.n, name: x.name })) };
+        return { users: [...users.values()].filter((x) => x.n !== self.n && !bans.has(x.n) && x.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 30).map((x) => ({ id: x.n, name: x.name })) };
       }
       if ((m = p.match(/^\/api\/conversations\/(\d+)$/)) && method === 'GET') return summary(getConv(m[1]));
       if ((m = p.match(/^\/api\/conversations\/(\d+)\/messages$/))) {
