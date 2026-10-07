@@ -579,7 +579,7 @@ input, textarea { font: inherit; color: inherit; }
    3.8–4.3 s due onde salgono e coprono lo schermo, poi tutto sfuma sulla chat. Un tocco salta. */
 #splash {
   position: fixed; inset: 0; z-index: 100; overflow: hidden; cursor: pointer;
-  background: linear-gradient(180deg, #1D55B8 0%, #286AD8 45%, #4A8EF0 100%);
+  background: linear-gradient(180deg, #286AD8 0%, #286AD8 35%, #4A8EF0 100%);
   display: flex; align-items: center; justify-content: center;
   animation: splashOut .4s ease-in 4.2s forwards;
 }
@@ -587,10 +587,13 @@ input, textarea { font: inherit; color: inherit; }
 @keyframes splashOut { to { opacity: 0; visibility: hidden; } }
 #splash i { font-style: normal; }
 .splash-night {
-  position: absolute; inset: 0; background: linear-gradient(180deg, #030F1F 0%, #0A2550 60%, #17478F 100%);
-  animation: night 2.4s ease-in-out .15s both;
+  /* l'alba sale dall'orizzonte: il bordo in alto resta del blu WeRoad, così su iPhone la
+     barra di stato (che prende quel colore all'apertura) non diventa scura */
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(40, 106, 216, 0) 30%, rgba(237, 251, 138, .28) 78%, rgba(248, 160, 248, .25) 100%);
+  animation: dawn 2.4s ease-out .3s both;
 }
-@keyframes night { from { opacity: 1; } to { opacity: 0; } }
+@keyframes dawn { from { opacity: 0; } to { opacity: 1; } }
 .splash-stars i {
   position: absolute; width: 3px; height: 3px; border-radius: 50%; background: #fff;
   box-shadow: 0 0 8px 2px rgba(255, 255, 255, .7); animation: star 2.1s ease-in both;
