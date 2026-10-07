@@ -29,7 +29,7 @@
     try { skip = sessionStorage.getItem('gr-skip-splash') === '1'; sessionStorage.removeItem('gr-skip-splash'); } catch {}
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (skip) { splash.remove(); return; }
-    const timer = setTimeout(() => splash.remove(), reduce ? 1250 : 4550);
+    const timer = setTimeout(() => splash.remove(), reduce ? 1250 : 4650);
     splash.addEventListener('click', () => {
       clearTimeout(timer);
       splash.classList.add('out');

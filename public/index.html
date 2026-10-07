@@ -18,28 +18,45 @@
   <link rel="stylesheet" href="/style.css?v=__APP_VERSION__">
 </head>
 <body>
-  <!-- Animazione di apertura (~4,5 secondi, tocca per saltarla) -->
+  <!-- Animazione di apertura (~4,5 secondi, tocca per saltarla). Tutta vettoriale: nitida su ogni schermo. -->
   <div id="splash" aria-hidden="true">
     <div class="splash-night"></div>
-    <div class="splash-stars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="splash-stars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <div class="splash-sun"></div>
     <div class="splash-gulls"><span class="g1"><svg viewBox="0 0 24 10"><path d="M1 8Q6 1 12 7Q18 1 23 8"/></svg></span><span class="g2"><svg viewBox="0 0 24 10"><path d="M1 8Q6 1 12 7Q18 1 23 8"/></svg></span><span class="g3"><svg viewBox="0 0 24 10"><path d="M1 8Q6 1 12 7Q18 1 23 8"/></svg></span></div>
     <div class="splash-center">
       <div class="splash-logo-wrap">
-        <img class="splash-logo" src="/wordmark-t.png" alt="" width="582" height="180">
-        <div class="splash-burst"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <img class="splash-logo" src="/wordmark.svg" alt="" width="582" height="180">
+        <div class="splash-shine"></div>
+        <div class="splash-burst"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
       </div>
       <div class="splash-tags">
         <p class="splash-tag t1">Setting sail…</p>
         <p class="splash-tag t2">Welcome aboard!</p>
       </div>
     </div>
-    <div class="splash-bubbles"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <div class="splash-sea">
-      <div class="splash-wave back"></div>
-      <span class="splash-ship"><span>🚢</span></span>
-      <div class="splash-wave front"></div>
+      <svg class="wv w1" viewBox="0 0 2880 200" preserveAspectRatio="none"><path d="M0 60C130 34 230 34 360 60C490 83 590 83 720 60C850 34 950 34 1080 60C1210 83 1310 83 1440 60C1570 34 1670 34 1800 60C1930 83 2030 83 2160 60C2290 34 2390 34 2520 60C2650 83 2750 83 2880 60V200H0Z"/></svg>
+      <svg class="wv w2" viewBox="0 0 2880 200" preserveAspectRatio="none"><path d="M0 80C86 58 154 58 240 80C326 100 394 100 480 80C566 58 634 58 720 80C806 100 874 100 960 80C1046 58 1114 58 1200 80C1286 100 1354 100 1440 80C1526 58 1594 58 1680 80C1766 100 1834 100 1920 80C2006 58 2074 58 2160 80C2246 100 2314 100 2400 80C2486 58 2554 58 2640 80C2726 100 2794 100 2880 80V200H0Z"/></svg>
+      <div class="splash-boat"><svg class="splash-ship" viewBox="0 0 132 78" aria-hidden="true">
+          <g class="smoke"><circle cx="86" cy="4" r="4"/><circle cx="90" cy="2" r="5"/><circle cx="84" cy="0" r="3.5"/></g>
+          <path d="M78 10h13l-2 17H80z" fill="#EDFB8A"/><path d="M78 10h13l-.5 4H78.5z" fill="#07253D"/><path d="M79 17h11.3l-.4 3H79.4z" fill="#F8A0F8"/>
+          <rect x="34" y="22" width="46" height="9" rx="3" fill="#fff"/>
+          <rect x="24" y="30" width="78" height="10" rx="3" fill="#EEF4FF"/>
+          <rect x="14" y="39" width="100" height="10" rx="3" fill="#fff"/>
+          <g fill="#07A2FF"><rect x="40" y="25" width="34" height="3" rx="1.5"/></g>
+          <g fill="#286AD8"><circle cx="32" cy="35" r="1.8"/><circle cx="40" cy="35" r="1.8"/><circle cx="48" cy="35" r="1.8"/><circle cx="56" cy="35" r="1.8"/><circle cx="64" cy="35" r="1.8"/><circle cx="72" cy="35" r="1.8"/><circle cx="80" cy="35" r="1.8"/><circle cx="88" cy="35" r="1.8"/><circle cx="96" cy="35" r="1.8"/></g>
+          <g fill="#07253D"><circle cx="22" cy="44" r="1.8"/><circle cx="30" cy="44" r="1.8"/><circle cx="38" cy="44" r="1.8"/><circle cx="46" cy="44" r="1.8"/><circle cx="54" cy="44" r="1.8"/><circle cx="62" cy="44" r="1.8"/><circle cx="70" cy="44" r="1.8"/><circle cx="78" cy="44" r="1.8"/><circle cx="86" cy="44" r="1.8"/><circle cx="94" cy="44" r="1.8"/><circle cx="102" cy="44" r="1.8"/></g>
+          <path d="M2 48h128l-13 22q-53 6-104 0z" fill="#fff"/>
+          <path d="M8 58h116l-7 12q-53 6-104 0z" fill="#07253D"/>
+          <path d="M5 53h122l-1.6 2.6H6.6z" fill="#F8A0F8"/>
+          <path d="M106 26l8 13" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M108 27l6 2-4 3z" fill="#F8A0F8"/>
+        </svg></div>
+      <svg class="wv w3" viewBox="0 0 2880 200" preserveAspectRatio="none"><path d="M0 100C130 82 230 82 360 100C490 116 590 116 720 100C850 82 950 82 1080 100C1210 116 1310 116 1440 100C1570 82 1670 82 1800 100C1930 116 2030 116 2160 100C2290 82 2390 82 2520 100C2650 116 2750 116 2880 100V200H0Z"/><path class="foam" d="M0 100C130 82 230 82 360 100C490 116 590 116 720 100C850 82 950 82 1080 100C1210 116 1310 116 1440 100C1570 82 1670 82 1800 100C1930 116 2030 116 2160 100C2290 82 2390 82 2520 100C2650 116 2750 116 2880 100"/></svg>
+      <svg class="wv w4" viewBox="0 0 2880 200" preserveAspectRatio="none"><path d="M0 128C86 114 154 114 240 128C326 141 394 141 480 128C566 114 634 114 720 128C806 141 874 141 960 128C1046 114 1114 114 1200 128C1286 141 1354 141 1440 128C1526 114 1594 114 1680 128C1766 141 1834 141 1920 128C2006 114 2074 114 2160 128C2246 141 2314 141 2400 128C2486 114 2554 114 2640 128C2726 141 2794 141 2880 128V200H0Z"/><path class="foam" d="M0 128C86 114 154 114 240 128C326 141 394 141 480 128C566 114 634 114 720 128C806 141 874 141 960 128C1046 114 1114 114 1200 128C1286 141 1354 141 1440 128C1526 114 1594 114 1680 128C1766 141 1834 141 1920 128C2006 114 2074 114 2160 128C2246 141 2314 141 2400 128C2486 114 2554 114 2640 128C2726 141 2794 141 2880 128"/></svg>
     </div>
+    <div class="splash-surge s1"></div>
+    <div class="splash-surge s2"></div>
     <p class="splash-skip">Tap to skip</p>
   </div>
 
@@ -47,7 +64,7 @@
   <section id="login" class="screen hidden">
     <div class="login-wrap">
       <div class="brand">
-        <img class="brand-logo" src="/wordmark.png" alt="WeRoad Global Reunion, Cruise Edition" width="582" height="180">
+        <img class="brand-logo" src="/wordmark.svg" alt="WeRoad Global Reunion, Cruise Edition" width="582" height="180">
         <p class="brand-sub">The private chat for participants</p>
       </div>
       <div class="login-card">
@@ -83,7 +100,7 @@
   <section id="app" class="screen hidden">
     <aside id="sidebar">
       <header class="bar">
-        <img class="bar-logo" src="/wordmark.png" alt="Global Reunion, Cruise Edition" width="582" height="180">
+        <img class="bar-logo" src="/wordmark.svg" alt="Global Reunion, Cruise Edition" width="582" height="180">
         <div class="bar-actions">
           <span id="me-avatar" class="avatar"></span>
           <button id="btn-info" class="icon" title="Useful info" aria-label="Useful info"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1.4" fill="currentColor"/></svg></button>
