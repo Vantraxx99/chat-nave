@@ -471,15 +471,18 @@
   $('#home-guide-link').addEventListener('click', installGuide);
 
   // In cima alla lista: prima l'invito a mettere l'app sulla Home, poi quello per le notifiche.
+  let pushCardRun = 0;
   async function refreshPushCard() {
     const card = $('#push-card');
     if (!card || !state.me) return;
+    // Può essere chiamata più volte di fila: vale solo l'ultima chiamata,
+    // altrimenti il riquadro compare due volte.
+    const run = ++pushCardRun;
     let dismissedPush = false, dismissedHome = false;
     try {
       dismissedPush = localStorage.getItem('gr-push-card') === 'no';
       dismissedHome = localStorage.getItem('gr-home-card') === 'no';
     } catch {}
-    card.textContent = '';
     const text = el('div', 'push-text');
     const close = el('button', 'push-close');
     close.type = 'button';
@@ -493,10 +496,11 @@
       const btn = el('button', 'btn lime push-on', installPrompt ? 'Install' : 'How to');
       btn.type = 'button';
       btn.addEventListener('click', installApp);
-      card.append(text, btn, close);
+      card.replaceChildren(text, btn, close);
       return;
     }
     const st = await pushStatus().catch(() => 'unsupported');
+    if (run !== pushCardRun) return; // nel frattempo è partita una chiamata più recente
     if (dismissedPush || st === 'on' || st === 'unsupported' || st === 'denied') { card.classList.add('hidden'); return; }
     card.classList.remove('hidden');
     close.addEventListener('click', () => { try { localStorage.setItem('gr-push-card', 'no'); } catch {} card.classList.add('hidden'); });
@@ -505,13 +509,13 @@
       const how = el('button', 'btn lime push-on', 'How to');
       how.type = 'button';
       how.addEventListener('click', installGuide);
-      card.append(text, how, close);
+      card.replaceChildren(text, how, close);
     } else {
       text.append(el('strong', null, '🔔 Don\'t miss a message'), el('span', null, 'Get notified even when the chat is closed.'));
       const btn = el('button', 'btn lime push-on', 'Turn on');
       btn.type = 'button';
       btn.addEventListener('click', enablePush);
-      card.append(text, btn, close);
+      card.replaceChildren(text, btn, close);
     }
   }
 
