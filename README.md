@@ -53,6 +53,12 @@ render.com/pricing.
 Il vero collo di bottiglia sarà quasi certamente la connessione satellitare della
 nave, non il server.
 
+## Mettere l'app sulla Home
+
+Nell'app c'è una guida passo passo per iPhone (Safari) e Android (Chrome). Si apre dal link sotto
+il modulo di accesso, dal riquadro in cima alla lista (finché la chat non è sulla Home) e dal
+menu ⋮. Su Android, quando Chrome lo permette, c'è direttamente il pulsante "Installa".
+
 ## Notifiche
 
 - **Con la chat aperta**: suono (generato dall'app, nessun file da scaricare) e vibrazione

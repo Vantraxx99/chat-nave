@@ -376,25 +376,118 @@
     } catch {}
   }
 
-  // Invito ad attivare le notifiche, in cima alla lista finché non si sceglie.
+  // ------------------------------------------- Installazione sulla Home
+  // Android/Chrome: il browser ci offre il suo pulsante "Installa".
+  let installPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; refreshPushCard(); });
+  window.addEventListener('appinstalled', () => { installPrompt = null; refreshPushCard(); });
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  const inAppBrowser = /Instagram|FBAN|FBAV|Line\/|TikTok|Snapchat/i.test(navigator.userAgent);
+
+  async function installApp() {
+    if (!installPrompt) return installGuide();
+    installPrompt.prompt();
+    try { await installPrompt.userChoice; } catch {}
+    installPrompt = null;
+    refreshPushCard();
+  }
+
+  const SVG = {
+    share: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 10H5v10h14V10h-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+    dots: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/></svg>',
+    more: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/></svg>',
+  };
+  const GUIDE = {
+    ios: [
+      ['Apri la chat in <b>Safari</b>. Se l\'hai aperta da Instagram, WhatsApp o un\'altra app, scegli prima «Apri in Safari».', null],
+      ['Tocca <b>Condividi</b> nella barra in basso. Se non lo vedi, tocca prima <b>⋯</b>.', 'share'],
+      ['Scorri e tocca <b>«Aggiungi alla schermata Home»</b>.', 'plus'],
+      ['Tocca <b>Aggiungi</b> in alto a destra. Da ora apri la chat dall\'icona <b>Global Reunion</b>.', null],
+    ],
+    android: [
+      ['Apri la chat in <b>Chrome</b>.', null],
+      ['Tocca il menu <b>⋮</b> in alto a destra.', 'dots'],
+      ['Tocca <b>«Aggiungi a schermata Home»</b> oppure <b>«Installa app»</b>.', 'plus'],
+      ['Conferma con <b>Installa</b>. L\'icona <b>Global Reunion</b> compare tra le tue app.', null],
+    ],
+  };
+
+  function installGuide() {
+    openModal('Mettila sulla Home', (body) => {
+      body.append(el('p', 'muted', 'Così la chat si apre a tutto schermo, come un\'app, e puoi ricevere le notifiche.'));
+      const seg = el('div', 'seg');
+      const steps = el('ol', 'steps');
+      const tabs = [['ios', '📱 iPhone'], ['android', '🤖 Android']];
+      const showTab = (key) => {
+        for (const b of seg.children) b.classList.toggle('on', b.dataset.k === key);
+        steps.textContent = '';
+        GUIDE[key].forEach(([html, icon], i) => {
+          const li = el('li');
+          const n = el('span', 'step-n', String(i + 1));
+          const t = el('span', 'step-t');
+          t.innerHTML = html; // testo fisso scritto da noi, nessun dato degli utenti
+          li.append(n, t);
+          if (icon) { const ic = el('span', 'step-ic'); ic.innerHTML = SVG[icon]; li.append(ic); }
+          steps.append(li);
+        });
+      };
+      for (const [k, label] of tabs) {
+        const b = el('button', null, label);
+        b.type = 'button';
+        b.dataset.k = k;
+        b.addEventListener('click', () => showTab(k));
+        seg.append(b);
+      }
+      body.append(seg, steps);
+      if (installPrompt) {
+        const quick = el('button', 'btn lime', '📲 Installa con un tocco');
+        quick.type = 'button';
+        quick.addEventListener('click', () => { closeModal(); installApp(); });
+        body.append(quick);
+      }
+      if (inAppBrowser) body.append(el('p', 'note', '⚠️ Stai usando il browser interno di un\'altra app: aprila in Safari o Chrome per poterla aggiungere alla Home.'));
+      showTab(isAndroid ? 'android' : 'ios');
+    });
+  }
+  $('#home-guide-link').addEventListener('click', installGuide);
+
+  // In cima alla lista: prima l'invito a mettere l'app sulla Home, poi quello per le notifiche.
   async function refreshPushCard() {
     const card = $('#push-card');
     if (!card || !state.me) return;
-    let dismissed = false;
-    try { dismissed = localStorage.getItem('gr-push-card') === 'no'; } catch {}
-    const st = await pushStatus().catch(() => 'unsupported');
+    let dismissedPush = false, dismissedHome = false;
+    try {
+      dismissedPush = localStorage.getItem('gr-push-card') === 'no';
+      dismissedHome = localStorage.getItem('gr-home-card') === 'no';
+    } catch {}
     card.textContent = '';
-    if (dismissed || st === 'on' || st === 'unsupported' || st === 'denied') { card.classList.add('hidden'); return; }
-    card.classList.remove('hidden');
     const text = el('div', 'push-text');
     const close = el('button', 'push-close');
     close.type = 'button';
     close.setAttribute('aria-label', 'Non ora');
     close.textContent = '✕';
+    const isMobile = isIOS || isAndroid;
+    if (!isStandalone && isMobile && !dismissedHome) {
+      card.classList.remove('hidden');
+      close.addEventListener('click', () => { try { localStorage.setItem('gr-home-card', 'no'); } catch {} refreshPushCard(); });
+      text.append(el('strong', null, '📲 Metti la chat sulla Home'), el('span', null, 'Si apre a tutto schermo come un\'app e ricevi le notifiche.'));
+      const btn = el('button', 'btn lime push-on', installPrompt ? 'Installa' : 'Come fare');
+      btn.type = 'button';
+      btn.addEventListener('click', installApp);
+      card.append(text, btn, close);
+      return;
+    }
+    const st = await pushStatus().catch(() => 'unsupported');
+    if (dismissedPush || st === 'on' || st === 'unsupported' || st === 'denied') { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
     close.addEventListener('click', () => { try { localStorage.setItem('gr-push-card', 'no'); } catch {} card.classList.add('hidden'); });
     if (st === 'ios-home') {
-      text.append(el('strong', null, '🔔 Notifiche su iPhone'), el('span', null, 'Aggiungi la chat alla schermata Home (tasto Condividi → «Aggiungi alla schermata Home») e aprila da lì.'));
-      card.append(text, close);
+      text.append(el('strong', null, '🔔 Notifiche su iPhone'), el('span', null, 'Funzionano solo aprendo la chat dalla schermata Home.'));
+      const how = el('button', 'btn lime push-on', 'Come fare');
+      how.type = 'button';
+      how.addEventListener('click', installGuide);
+      card.append(text, how, close);
     } else {
       text.append(el('strong', null, '🔔 Non perdere i messaggi'), el('span', null, 'Ricevi una notifica anche quando la chat è chiusa.'));
       const btn = el('button', 'btn lime push-on', 'Attiva');
@@ -1015,6 +1108,7 @@
         }));
       }
       body.append(menuButton('🔔  Notifiche, suono e vibrazione', notificationsDialog));
+      body.append(menuButton('📲  Metti la chat sulla Home', installGuide));
       body.append(menuButton('🚪  Esci', async () => {
         if (!await askConfirm('Uscire? Per rientrare userai di nuovo nome, cognome ed email.', 'Esci')) return;
         await disablePush();
