@@ -20,6 +20,18 @@
   };
 
   // ------------------------------------------------------------------ API
+  // Animazione di apertura: dura 2 secondi, poi si toglie. Saltata dopo un
+  // aggiornamento automatico (la pagina si ricarica da sola, niente sipario).
+  (() => {
+    const splash = document.getElementById('splash');
+    if (!splash) return;
+    let skip = false;
+    try { skip = sessionStorage.getItem('gr-skip-splash') === '1'; sessionStorage.removeItem('gr-skip-splash'); } catch {}
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (skip) { splash.remove(); return; }
+    setTimeout(() => splash.remove(), reduce ? 1000 : 2050);
+  })();
+
   // Niente zoom, come in un'app: iOS ignora user-scalable=no per il pizzico, quindi
   // blocchiamo anche i gesti a due dita e Ctrl+rotella sul computer.
   for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
@@ -61,6 +73,7 @@
     const tryReload = () => {
       const busy = ($('#msg-input') && $('#msg-input').value.trim()) || !$('#modal').classList.contains('hidden');
       if (busy) return setTimeout(tryReload, 5000);
+      try { sessionStorage.setItem('gr-skip-splash', '1'); } catch {}
       location.reload();
     };
     tryReload();
@@ -190,9 +203,10 @@
     state.me = data.user;
     state.cursor = data.cursor;
     state.convs.clear();
-    for (const c of data.conversations) state.convs.set(c.id, c);
+    for (const c of data.conversations) { c.lastSeenId = c.lastMessage ? c.lastMessage.id : 0; state.convs.set(c.id, c); }
     $('#me-avatar').title = state.me.name + (state.me.isAdmin ? ' (organiser)' : '');
     setAvatar($('#me-avatar'), { type: 'user', title: state.me.name, otherUserId: state.me.id });
+    $('#tab-support').classList.toggle('hidden', !state.me.isAdmin);
     show('app');
     renderConvList();
     refreshPushCard();
@@ -205,7 +219,7 @@
     try {
       const data = await api('GET', '/api/me');
       state.convs.clear();
-      for (const c of data.conversations) state.convs.set(c.id, c);
+      for (const c of data.conversations) { c.lastSeenId = c.lastMessage ? c.lastMessage.id : 0; state.convs.set(c.id, c); }
       if (state.current) {
         const c = state.convs.get(state.current);
         if (c) c.unread = 0;
@@ -546,15 +560,29 @@
   }
 
   // ---------------------------------------------------- Lista delle chat
+  // Chat di assistenza ricevute da un organizzatore (quelle dei partecipanti).
+  const isInbox = (c) => c.type === 'staff' && !c.virtual && state.me && state.me.isAdmin && c.title !== '🛟 Staff support';
+  const byTime = (a, b) => (b.lastMessage ? b.lastMessage.createdAt : 0) - (a.lastMessage ? a.lastMessage.createdAt : 0);
+
   function sortedConvs() {
-    // In cima: Staff support, poi Announcements, poi i canali pubblici.
-    // Per gli organizzatori le chat di assistenza salgono in cima solo se hanno messaggi da leggere.
-    const pinned = (c) => (c.type === 'staff' ? (state.me.isAdmin ? (c.unread ? 3 : 0) : 3)
-      : c.type === 'announce' ? 2 : c.type === 'public' ? 1 : 0);
-    const list = [...state.convs.values()];
-    // Il partecipante vede sempre "Staff support", anche prima di aver scritto (la chat si crea al primo tocco).
-    if (!state.me.isAdmin && !list.some((c) => c.type === 'staff')) {
-      list.push({ id: 'staff', type: 'staff', title: '🛟 Staff support', lastMessage: null, unread: 0, virtual: true });
+    // In cima, fissati: Staff support, poi Announcements, poi i canali pubblici.
+    const pinned = (c) => (c.type === 'staff' ? 3 : c.type === 'announce' ? 2 : c.type === 'public' ? 1 : 0);
+    const all = [...state.convs.values()];
+    if (tab === 'support') return all.filter(isInbox).sort((a, b) => (b.unread ? 1 : 0) - (a.unread ? 1 : 0) || byTime(a, b));
+    let list;
+    if (state.me.isAdmin) {
+      // Organizzatori: una sola voce "Staff support" che raccoglie tutte le richieste.
+      const inbox = all.filter(isInbox).sort(byTime);
+      list = all.filter((c) => !isInbox(c));
+      list.push({
+        id: 'support-inbox', type: 'staff', title: '🛟 Staff support', virtual: 'inbox',
+        unread: inbox.reduce((n, c) => n + (c.unread || 0), 0),
+        lastMessage: inbox[0] ? inbox[0].lastMessage : null, count: inbox.length,
+      });
+    } else {
+      list = all;
+      // Il partecipante vede sempre "Staff support", anche prima di aver scritto (la chat si crea al primo tocco).
+      if (!list.some((c) => c.type === 'staff')) list.push({ id: 'staff', type: 'staff', title: '🛟 Staff support', lastMessage: null, unread: 0, virtual: 'new' });
     }
     return list.sort((a, b) => {
       const at = a.lastMessage ? a.lastMessage.createdAt : 0;
@@ -569,7 +597,13 @@
     unread: (c) => c.unread > 0,
     groups: (c) => c.type !== 'dm' && c.type !== 'staff',
     dm: (c) => c.type === 'dm' || c.type === 'staff',
+    support: () => true,
   };
+  function selectTab(name) {
+    tab = name;
+    for (const x of document.querySelectorAll('#tabs button')) x.classList.toggle('on', x.dataset.tab === name);
+    renderConvList();
+  }
   for (const b of document.querySelectorAll('#tabs button')) {
     b.addEventListener('click', () => {
       tab = b.dataset.tab;
@@ -583,9 +617,9 @@
     const filter = $('#conv-filter').value.trim().toLowerCase();
     ul.textContent = '';
     let totalUnread = 0;
+    for (const c of state.convs.values()) totalUnread += c.unread || 0;
     let shown = 0;
     for (const c of sortedConvs()) {
-      totalUnread += c.unread || 0;
       if (filter && !c.title.toLowerCase().includes(filter)) continue;
       if (!TAB_TEST[tab](c)) continue;
       shown++;
@@ -598,7 +632,7 @@
       const r1 = el('div', 'row');
       const name = el('span', 'name', plainTitle(c));
       if (c.type === 'announce') name.append(el('span', 'tag', 'Official'));
-      if (c.type === 'staff' && state.me.isAdmin && c.title !== '🛟 Staff support') name.append(el('span', 'tag', 'Support'));
+      if (c.virtual === 'inbox') name.append(el('span', 'tag', c.count ? `${c.count} chat${c.count === 1 ? '' : 's'}` : 'Inbox'));
       r1.append(name, el('span', 'time', c.lastMessage ? fmtListTime(c.lastMessage.createdAt) : ''));
       const r2 = el('div', 'row');
       let preview = '';
@@ -606,22 +640,31 @@
         const lm = c.lastMessage;
         const who = lm.userId === state.me.id ? 'You: ' : c.type !== 'dm' && !isSystemText(lm.text) ? lm.userName.split(' ')[0] + ': ' : '';
         preview = lm.deleted ? '🚫 Message deleted' : who + lm.text.replace(/\n/g, ' ');
-      } else if (c.type === 'staff' && !state.me.isAdmin) {
+      } else if (c.virtual === 'new') {
         preview = 'Questions? Write to the organisers';
+      } else if (c.virtual === 'inbox') {
+        preview = 'Support requests from participants will appear here';
       }
       r2.append(el('span', 'preview', preview));
       if (c.unread) r2.append(el('span', 'badge', c.unread > 99 ? '99+' : String(c.unread)));
-      else if (c.type === 'announce' || c.type === 'public' || (c.type === 'staff' && !state.me.isAdmin)) { const pin = el('span', 'pin'); pin.innerHTML = ICON_PIN; pin.title = 'Pinned'; r2.append(pin); }
+      else if (c.type === 'announce' || c.type === 'public' || (c.type === 'staff' && tab !== 'support')) { const pin = el('span', 'pin'); pin.innerHTML = ICON_PIN; pin.title = 'Pinned'; r2.append(pin); }
       info.append(r1, r2);
       li.append(av, info);
-      li.addEventListener('click', () => (c.virtual ? contactStaff() : openConv(c.id)));
+      li.addEventListener('click', () => (c.virtual === 'new' ? contactStaff() : c.virtual === 'inbox' ? selectTab('support') : openConv(c.id)));
       ul.append(li);
     }
     if (!shown) {
       const empty = el('li', 'list-empty');
       empty.append(el('span', 'big', tab === 'unread' ? '🎉' : '🌊'), document.createTextNode(
-        filter ? 'No chats with this name' : tab === 'unread' ? 'All caught up!' : tab === 'dm' ? 'No private chats yet. Tap “New chat” to message someone.' : 'Nothing here yet'));
+        filter ? 'No chats with this name' : tab === 'unread' ? 'All caught up!' : tab === 'support' ? 'No support requests yet' : tab === 'dm' ? 'No private chats yet. Tap “New chat” to message someone.' : 'Nothing here yet'));
       ul.append(empty);
+    }
+    // Scheda "Support" degli organizzatori: quante richieste di assistenza da leggere.
+    const supportTab = $('#tab-support');
+    if (state.me.isAdmin) {
+      const pending = [...state.convs.values()].filter((c) => isInbox(c) && c.unread).length;
+      supportTab.textContent = '🛟 Support';
+      if (pending) supportTab.append(el('span', 'n', String(pending)));
     }
     const unreadTab = document.querySelector('#tabs [data-tab="unread"]');
     unreadTab.textContent = 'Unread';

@@ -38,8 +38,9 @@ const IMAGES = {
   '/wordmark.png': dataUri('wordmark.png', 'image/png'),
   '/waves.jpg': dataUri('waves.jpg', 'image/jpeg'),
   '/anton.woff2': dataUri('anton.woff2', 'font/woff2'),
+  '/wordmark-t.png': dataUri('wordmark-t.png', 'image/png'),
 };
-const inlineImages = (text) => text.replace(/\/(wordmark\.png|waves\.jpg|anton\.woff2)/g, (m) => IMAGES[m]);
+const inlineImages = (text) => text.replace(/\/(wordmark-t\.png|wordmark\.png|waves\.jpg|anton\.woff2)/g, (m) => IMAGES[m]);
 
 let html = `<title>${title}</title>
 <style>

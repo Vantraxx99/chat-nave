@@ -18,6 +18,20 @@
   <link rel="stylesheet" href="/style.css?v=__APP_VERSION__">
 </head>
 <body>
+  <!-- Animazione di apertura (2 secondi) -->
+  <div id="splash" aria-hidden="true">
+    <div class="splash-glow"></div>
+    <div class="splash-center">
+      <img class="splash-logo" src="/wordmark-t.png" alt="" width="582" height="180">
+      <p class="splash-tag">Setting sail…</p>
+    </div>
+    <div class="splash-bubbles"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="splash-sea">
+      <span class="splash-ship">🚢</span>
+      <div class="splash-wave front"></div>
+    </div>
+  </div>
+
   <!-- Accesso / registrazione -->
   <section id="login" class="screen hidden">
     <div class="login-wrap">
@@ -74,6 +88,7 @@
         <button type="button" data-tab="unread">Unread</button>
         <button type="button" data-tab="groups">Groups</button>
         <button type="button" data-tab="dm">Private</button>
+        <button type="button" data-tab="support" id="tab-support" class="hidden">🛟 Support</button>
       </div>
       <div id="push-card" class="push-card hidden"></div>
       <ul id="conv-list" class="list"></ul>

@@ -563,3 +563,62 @@ input, textarea { font: inherit; color: inherit; }
   .msg.show-actions .msg-reply { display: inline-flex; }
   .msg:has(.msg-reply) .msg-del, .msg.me:has(.msg-reply) .msg-del { right: auto; left: auto; }
 }
+
+/* ---------- Animazione di apertura (2 s) ----------
+   0.0–0.7 s il mare sale · 0.15–1.0 s il logo entra con un rimbalzo · 0.2–2.0 s la nave
+   attraversa le onde · 1.55–2.0 s tutto sfuma. Solo CSS e immagini già in cache. */
+#splash {
+  position: fixed; inset: 0; z-index: 100; overflow: hidden; background: #286AD8;
+  display: flex; align-items: center; justify-content: center;
+  animation: splashOut .45s ease-in 1.55s forwards;
+}
+@keyframes splashOut { to { opacity: 0; transform: scale(1.06); visibility: hidden; } }
+.splash-glow {
+  position: absolute; width: 140vmax; height: 140vmax; border-radius: 50%;
+  background: radial-gradient(circle, rgba(237, 251, 138, .28) 0%, rgba(7, 162, 255, .18) 30%, rgba(40, 106, 216, 0) 60%);
+  animation: glow 2s ease-out both;
+}
+@keyframes glow { from { transform: scale(.3); opacity: 0; } 40% { opacity: 1; } to { transform: scale(1); opacity: .8; } }
+.splash-center { position: relative; z-index: 2; text-align: center; margin-bottom: 16vh; }
+.splash-logo { width: min(80vw, 440px); height: auto; display: block; animation: logoIn .85s cubic-bezier(.2, 1.5, .45, 1) .15s both; }
+@keyframes logoIn {
+  0% { opacity: 0; transform: translateY(40px) scale(.55) rotate(-5deg); }
+  60% { opacity: 1; transform: translateY(-6px) scale(1.06) rotate(1.5deg); }
+  100% { opacity: 1; transform: none; }
+}
+.splash-tag {
+  margin: 14px 0 0; color: #fff; font-family: var(--display); font-size: 20px; letter-spacing: 3px; text-transform: uppercase;
+  animation: tagIn .5s ease-out .75s both;
+}
+@keyframes tagIn { from { opacity: 0; letter-spacing: 10px; } to { opacity: .9; letter-spacing: 3px; } }
+.splash-sea { position: absolute; left: 0; right: 0; bottom: 0; height: 22vh; animation: seaUp .75s cubic-bezier(.2, .9, .25, 1) both; }
+@keyframes seaUp { from { transform: translateY(100%); } to { transform: none; } }
+.splash-wave { position: absolute; left: 0; right: 0; bottom: 0; background: url(/waves.jpg) repeat-x 0 bottom / auto 100%; }
+.splash-wave.front { height: 100%; animation: waveL 2s linear both; }
+@keyframes waveL { from { background-position-x: 0; } to { background-position-x: -260px; } }
+.splash-ship {
+  position: absolute; bottom: 58%; left: 110%; font-size: 46px; line-height: 1; z-index: 1;
+  animation: sail 1.8s cubic-bezier(.45, .05, .55, .95) .2s both;
+}
+@keyframes sail {
+  0% { left: 110%; transform: translateY(0) rotate(3deg); }
+  25% { transform: translateY(-6px) rotate(-3deg); }
+  50% { transform: translateY(0) rotate(3deg); }
+  75% { transform: translateY(-5px) rotate(-2deg); }
+  100% { left: -20%; transform: translateY(0) rotate(2deg); }
+}
+.splash-bubbles i {
+  position: absolute; bottom: 20vh; width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, .55);
+  animation: bubble 1.5s ease-out both;
+}
+.splash-bubbles i:nth-child(1) { left: 12%; animation-delay: .35s; }
+.splash-bubbles i:nth-child(2) { left: 27%; width: 6px; height: 6px; animation-delay: .55s; background: rgba(237, 251, 138, .8); }
+.splash-bubbles i:nth-child(3) { left: 41%; width: 14px; height: 14px; animation-delay: .45s; }
+.splash-bubbles i:nth-child(4) { left: 58%; width: 7px; height: 7px; animation-delay: .7s; background: rgba(248, 160, 248, .85); }
+.splash-bubbles i:nth-child(5) { left: 71%; animation-delay: .4s; }
+.splash-bubbles i:nth-child(6) { left: 84%; width: 12px; height: 12px; animation-delay: .6s; background: rgba(7, 162, 255, .8); }
+.splash-bubbles i:nth-child(7) { left: 93%; width: 6px; height: 6px; animation-delay: .8s; }
+@keyframes bubble { from { opacity: 0; transform: translateY(0) scale(.4); } 30% { opacity: 1; } to { opacity: 0; transform: translateY(-38vh) scale(1.1); } }
+@media (prefers-reduced-motion: reduce) {
+  #splash { animation: splashOut .3s ease-in .7s forwards !important; }
+}
