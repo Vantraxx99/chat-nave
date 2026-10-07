@@ -50,20 +50,28 @@
 
   // Su iPhone la tastiera non ridimensiona la pagina: usiamo l'area visibile reale,
   // così intestazione e campo di scrittura restano al loro posto.
-  // Aperta dalla Home, iOS conta l'area visibile SENZA la barra di stato (~60 px): senza
-  // correzione la pagina si fermerebbe 60 px prima del fondo (fascia blu sotto, e sopra la
-  // tastiera). Misuriamo quella differenza a tastiera chiusa e la aggiungiamo sempre.
+  // Aperta dalla Home con la barra di stato trasparente, iOS dà un'area visibile più corta
+  // dello schermo esattamente dell'altezza della barra di stato (safe-area in alto): senza
+  // correzione resta una fascia vuota in basso (e sopra la tastiera). Se a tastiera chiusa
+  // area + barra = schermo, il difetto c'è e aggiungiamo sempre quell'altezza.
   const vv = window.visualViewport;
   if (vv) {
-    let gap = 0;
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;height:env(safe-area-inset-top,0px)';
+    document.documentElement.appendChild(probe);
+    let extra = 0;
     const typing = () => { const a = document.activeElement; return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'); };
     const fit = () => {
-      const full = document.documentElement.clientHeight;
-      if (!typing()) gap = Math.max(0, Math.min(120, full - vv.height));
-      const h = Math.min(full, vv.height + gap);
+      const top = probe.offsetHeight || 0;
+      if (!typing()) {
+        const portrait = window.innerWidth < window.innerHeight;
+        const screenH = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+        extra = top > 0 && Math.abs(vv.height + top - screenH) <= 2 ? top : 0;
+      }
+      const h = vv.height + extra;
       document.documentElement.style.setProperty('--app-h', h + 'px');
       // Con la tastiera aperta il margine per la barretta in basso dell'iPhone non serve.
-      document.documentElement.classList.toggle('kb-open', typing() && h < full - 150);
+      document.documentElement.classList.toggle('kb-open', typing() && vv.height < (screen.height || 9999) * 0.75);
       if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
     };
     vv.addEventListener('resize', fit);

@@ -79,6 +79,8 @@ html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: non
 /* Su iPhone, aperta dalla Home, la pagina scorre sotto la barra di stato (black-translucent):
    lo sfondo del documento è blu, così dietro ora e batteria si vede sempre il blu della testata. */
 html { background: var(--brand); }
+/* Paracadute: se l'app non arrivasse fino in fondo, sotto si vede il colore della lista, non una striscia blu. */
+html:has(#app:not(.hidden)) { background: linear-gradient(var(--brand) 50%, var(--panel) 50%); }
 /* Safari su iPhone ignora overflow:hidden sul documento: fissiamo la pagina allo schermo,
    così scorrono solo lista e messaggi. L'altezza segue lo spazio sopra la tastiera (--app-h). */
 body { position: fixed; top: 0; left: 0; right: 0; height: var(--app-h, 100%); width: 100%; }
