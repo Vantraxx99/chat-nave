@@ -7,6 +7,7 @@ const crypto = require('node:crypto');
 const { db } = require('./db');
 const { normalizeEmail, isValidEmail, cleanName, surnameMatches } = require('./identity');
 const { hashEmail, loadHashes } = require('./allowlist');
+const push = require('./push');
 
 const PORT = Number(process.env.PORT) || 3000;
 const normalizeCode = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -334,7 +335,28 @@ function postMessage(conv, userId, text) {
   const { lastInsertRowid } = q.insertMsg.run(conv.id, userId, text, Date.now(), s);
   q.upsertRead.run(userId, conv.id, lastInsertRowid);
   notify(conv);
-  return q.msgById.get(lastInsertRowid);
+  const msg = q.msgById.get(lastInsertRowid);
+  sendPush(conv, msg);
+  return msg;
+}
+
+// Notifica push a chi deve ricevere il messaggio e non ha l'app aperta davanti.
+// Niente push per i canali pubblici aperti dagli organizzatori (sarebbero troppe);
+// sì per Annunci, gruppi e chat private.
+function sendPush(conv, msg) {
+  if (conv.type === 'public') return;
+  const exclude = new Set([msg.user_id]);
+  for (const w of waiters) if (w.visible) exclude.add(w.userId);
+  const first = msg.user_name.split(' ')[0];
+  const text = msg.text.length > 140 ? msg.text.slice(0, 137) + '…' : msg.text;
+  const message = {
+    title: conv.type === 'dm' ? msg.user_name : conv.name,
+    body: conv.type === 'dm' || conv.type === 'announce' ? text : `${first}: ${text}`,
+    convId: conv.id,
+    tag: 'conv-' + conv.id,
+  };
+  const recipients = conv.type === 'announce' ? null : q.memberIds.all(conv.id).map((r) => r.user_id);
+  try { push.notify(recipients, message, exclude); } catch (err) { console.error('push', err); }
 }
 
 // ---------------------------------------------------------------------------
@@ -524,6 +546,7 @@ route('GET', '/api/poll', async (req, res, params, url) => {
     const w = {
       userId: user.id,
       since,
+      visible: url.searchParams.get('v') === '1', // app aperta e in primo piano
       respond(list, shared) {
         if (!waiters.delete(w)) return;
         clearTimeout(w.timer);
@@ -538,6 +561,26 @@ route('GET', '/api/poll', async (req, res, params, url) => {
     res.on('close', () => { if (waiters.delete(w)) clearTimeout(w.timer); });
     waiters.add(w);
   });
+});
+
+// --- Notifiche push ------------------------------------------------------------
+route('GET', '/api/push/key', async (req) => {
+  auth(req);
+  return { publicKey: push.publicKey };
+});
+
+route('POST', '/api/push/subscribe', async (req) => {
+  const user = auth(req);
+  const body = await readJson(req);
+  if (!push.subscribe(user.id, body.subscription)) throw new HttpError(400, 'Iscrizione alle notifiche non valida');
+  return { ok: true };
+});
+
+route('POST', '/api/push/unsubscribe', async (req) => {
+  const user = auth(req);
+  const body = await readJson(req);
+  push.unsubscribe(user.id, body.endpoint);
+  return { ok: true };
 });
 
 // --- Organizzatori -----------------------------------------------------------

@@ -66,6 +66,16 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  -- Iscrizioni alle notifiche push (una per dispositivo).
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint   TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    p256dh     TEXT NOT NULL,
+    auth       TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS push_user ON push_subscriptions(user_id);
+
   CREATE TABLE IF NOT EXISTS reads (
     user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,

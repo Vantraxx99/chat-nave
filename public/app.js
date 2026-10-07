@@ -178,6 +178,7 @@
     setAvatar($('#me-avatar'), { type: 'user', title: state.me.name, otherUserId: state.me.id });
     show('app');
     renderConvList();
+    refreshPushCard();
     const fromHash = Number(location.hash.slice(1));
     if (fromHash && state.convs.has(fromHash)) openConv(fromHash);
     poll();
@@ -208,7 +209,8 @@
     while (state.me) {
       try {
         state.pollCtrl = new AbortController();
-        const data = demo ? await demo.poll(state.cursor) : await fetch('/api/poll?since=' + state.cursor, { signal: state.pollCtrl.signal, credentials: 'same-origin' })
+        const visible = document.visibilityState === 'visible' ? 1 : 0;
+        const data = demo ? await demo.poll(state.cursor) : await fetch(`/api/poll?since=${state.cursor}&v=${visible}`, { signal: state.pollCtrl.signal, credentials: 'same-origin' })
           .then(async (r) => {
             if (r.status === 401 || r.status === 403) { const e = new Error('auth'); e.status = r.status; throw e; }
             if (!r.ok) throw new Error('http ' + r.status);
@@ -226,6 +228,7 @@
         }
       } catch (err) {
         if (err.status === 401 || err.status === 403) { state.me = null; return initLogin(); }
+        if (err.name === 'AbortError') continue; // riavvio voluto (app in primo piano / in background)
         $('#offline').classList.remove('hidden');
         delay = Math.min(delay ? delay * 2 : 1000, 15000);
         await new Promise((r) => setTimeout(r, delay + Math.random() * 1000));
@@ -233,12 +236,24 @@
     }
   }
 
+  // Quando l'app passa in primo piano o in background riapriamo la richiesta,
+  // così il server sa se mandare la notifica push o no.
+  document.addEventListener('visibilitychange', () => {
+    if (state.me && state.pollCtrl && !demo) state.pollCtrl.abort();
+  });
+
   function handleIncoming(list) {
     let needRefresh = false;
     let listChanged = false;
+    let ring = null;
     for (const m of list) {
       const conv = state.convs.get(m.conversationId);
-      if (!conv) { needRefresh = true; continue; }
+      if (!conv) {
+        // Chat nuova (es. la prima volta che qualcuno ti scrive): la lista si aggiorna a parte.
+        needRefresh = true;
+        if (!m.deleted && m.userId !== state.me.id) ring = ring || 'message';
+        continue;
+      }
       const store = state.messages.get(m.conversationId);
       const known = store && store.has(m.id);
       if (store) store.set(m.id, m);
@@ -249,6 +264,7 @@
           && (!conv.lastSeenId || m.id > conv.lastSeenId)) {
         conv.unread = (conv.unread || 0) + 1;
         listChanged = true;
+        ring = conv.type === 'announce' ? 'announce' : ring || 'message';
       }
       conv.lastSeenId = Math.max(conv.lastSeenId || 0, m.id);
       if (state.current === m.conversationId) renderMessage(m);
@@ -256,6 +272,161 @@
     if (state.current) markRead();
     if (listChanged) renderConvList();
     if (needRefresh) scheduleRefresh();
+    if (ring) alertUser(ring);
+  }
+
+  // --------------------------------------------------- Suono e vibrazione
+  // Il suono è generato al volo (nessun file da scaricare via satellite).
+  const prefs = { sound: true, vibrate: true };
+  try { Object.assign(prefs, JSON.parse(localStorage.getItem('gr-prefs') || '{}')); } catch {}
+  const savePrefs = () => { try { localStorage.setItem('gr-prefs', JSON.stringify(prefs)); } catch {} };
+  let audioCtx = null;
+  function unlockAudio() {
+    // Su iPhone l'audio parte solo dopo un tocco dell'utente.
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    } catch {}
+  }
+  for (const ev of ['pointerdown', 'keydown', 'touchend']) document.addEventListener(ev, unlockAudio, { passive: true });
+
+  function playTone(kind) {
+    if (!audioCtx || audioCtx.state !== 'running') return;
+    const notes = kind === 'announce' ? [659, 880, 1175] : [880, 1320];
+    const t0 = audioCtx.currentTime + 0.01;
+    notes.forEach((f, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = f;
+      const t = t0 + i * 0.11;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.18, t + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + 0.25);
+    });
+  }
+
+  let lastAlert = 0;
+  function alertUser(kind) {
+    // In background ci pensa la notifica push; qui solo con l'app davanti.
+    if (document.visibilityState !== 'visible') return;
+    const now = Date.now();
+    if (now - lastAlert < 1500) return;
+    lastAlert = now;
+    if (prefs.sound) playTone(kind);
+    if (prefs.vibrate && navigator.vibrate) navigator.vibrate(kind === 'announce' ? [120, 60, 120, 60, 120] : [90, 50, 90]);
+  }
+
+  // --------------------------------------------------- Notifiche push
+  const pushSupported = !demo && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  let swReg = null;
+  if (!demo && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').then((r) => { swReg = r; refreshPushCard(); }).catch(() => {});
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'open-conv' && e.data.convId && state.convs.has(e.data.convId)) openConv(e.data.convId);
+    });
+  }
+
+  function urlB64ToBytes(b64) {
+    const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+    const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  }
+
+  async function pushStatus() {
+    if (isIOS && !isStandalone) return 'ios-home';
+    if (!pushSupported) return 'unsupported';
+    if (Notification.permission === 'denied') return 'denied';
+    const reg = swReg || await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    return sub && Notification.permission === 'granted' ? 'on' : 'off';
+  }
+
+  async function enablePush() {
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { toast('Notifiche non autorizzate: puoi attivarle dalle impostazioni del telefono'); return false; }
+      const reg = swReg || await navigator.serviceWorker.ready;
+      const { publicKey } = await api('GET', '/api/push/key');
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToBytes(publicKey) });
+      await api('POST', '/api/push/subscribe', { subscription: sub.toJSON() });
+      toast('🔔 Notifiche attivate');
+      refreshPushCard();
+      return true;
+    } catch (err) {
+      toast('Non è stato possibile attivare le notifiche');
+      return false;
+    }
+  }
+
+  async function disablePush() {
+    try {
+      const reg = swReg || await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await api('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint }).catch(() => {});
+        await sub.unsubscribe();
+      }
+    } catch {}
+  }
+
+  // Invito ad attivare le notifiche, in cima alla lista finché non si sceglie.
+  async function refreshPushCard() {
+    const card = $('#push-card');
+    if (!card || !state.me) return;
+    let dismissed = false;
+    try { dismissed = localStorage.getItem('gr-push-card') === 'no'; } catch {}
+    const st = await pushStatus().catch(() => 'unsupported');
+    card.textContent = '';
+    if (dismissed || st === 'on' || st === 'unsupported' || st === 'denied') { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+    const text = el('div', 'push-text');
+    const close = el('button', 'push-close');
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Non ora');
+    close.textContent = '✕';
+    close.addEventListener('click', () => { try { localStorage.setItem('gr-push-card', 'no'); } catch {} card.classList.add('hidden'); });
+    if (st === 'ios-home') {
+      text.append(el('strong', null, '🔔 Notifiche su iPhone'), el('span', null, 'Aggiungi la chat alla schermata Home (tasto Condividi → «Aggiungi alla schermata Home») e aprila da lì.'));
+      card.append(text, close);
+    } else {
+      text.append(el('strong', null, '🔔 Non perdere i messaggi'), el('span', null, 'Ricevi una notifica anche quando la chat è chiusa.'));
+      const btn = el('button', 'btn lime push-on', 'Attiva');
+      btn.type = 'button';
+      btn.addEventListener('click', enablePush);
+      card.append(text, btn, close);
+    }
+  }
+
+  function notificationsDialog() {
+    openModal('Notifiche', async (body) => {
+      const st = await pushStatus().catch(() => 'unsupported');
+      const label = {
+        on: '✅ Notifiche push attive su questo dispositivo',
+        off: 'Notifiche push non attive',
+        denied: 'Notifiche bloccate: riattivale dalle impostazioni del telefono',
+        unsupported: 'Questo browser non supporta le notifiche push',
+        'ios-home': 'Su iPhone le notifiche funzionano solo aggiungendo la chat alla schermata Home',
+      }[st];
+      body.append(el('p', null, label));
+      if (st === 'off') body.append(menuButton('🔔  Attiva le notifiche push', async () => { if (await enablePush()) closeModal(); }, 'primary'));
+      if (st === 'on') body.append(menuButton('🔕  Disattiva su questo dispositivo', async () => { await disablePush(); toast('Notifiche disattivate'); closeModal(); refreshPushCard(); }));
+      const soundBtn = menuButton('', () => { prefs.sound = !prefs.sound; savePrefs(); paint(); if (prefs.sound) { unlockAudio(); playTone('message'); } });
+      const vibBtn = menuButton('', () => { prefs.vibrate = !prefs.vibrate; savePrefs(); paint(); if (prefs.vibrate && navigator.vibrate) navigator.vibrate(80); });
+      const paint = () => {
+        soundBtn.textContent = (prefs.sound ? '🔊  Suono: attivo' : '🔇  Suono: disattivato');
+        vibBtn.textContent = (prefs.vibrate ? '📳  Vibrazione: attiva' : '📴  Vibrazione: disattivata');
+      };
+      paint();
+      body.append(el('div', 'section-label', 'Con la chat aperta'), soundBtn, vibBtn);
+      if (!navigator.vibrate) body.append(el('p', 'muted', 'La vibrazione non è disponibile su iPhone dal browser.'));
+    });
   }
 
   // ---------------------------------------------------- Lista delle chat
@@ -329,6 +500,9 @@
     unreadTab.textContent = 'Non lette';
     if (totalUnread) unreadTab.append(el('span', 'n', totalUnread > 99 ? '99+' : String(totalUnread)));
     document.title = (totalUnread ? `(${totalUnread}) ` : '') + 'Global Reunion · Cruise Edition';
+    try {
+      if (navigator.setAppBadge) totalUnread ? navigator.setAppBadge(totalUnread) : navigator.clearAppBadge();
+    } catch {}
   }
   $('#conv-filter').addEventListener('input', renderConvList);
 
@@ -840,8 +1014,10 @@
           } catch (err) { toast(err.message); }
         }));
       }
+      body.append(menuButton('🔔  Notifiche, suono e vibrazione', notificationsDialog));
       body.append(menuButton('🚪  Esci', async () => {
         if (!await askConfirm('Uscire? Per rientrare userai di nuovo nome, cognome ed email.', 'Esci')) return;
+        await disablePush();
         try { await api('POST', '/api/logout'); } catch {}
         location.reload();
       }, 'danger'));

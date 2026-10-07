@@ -53,6 +53,21 @@ render.com/pricing.
 Il vero collo di bottiglia sarà quasi certamente la connessione satellitare della
 nave, non il server.
 
+## Notifiche
+
+- **Con la chat aperta**: suono (generato dall'app, nessun file da scaricare) e vibrazione
+  quando arriva un messaggio in un'altra chat; un suono diverso per gli Annunci. Si regolano dal
+  menu ⋮ → "Notifiche, suono e vibrazione". Su iPhone il browser non permette la vibrazione.
+- **Ad app chiusa (push)**: ognuno le attiva dal riquadro in cima alla lista o dal menu.
+  - **iPhone**: solo con iOS 16.4 o più recente, e solo se la chat è stata aggiunta alla schermata Home.
+  - **Chi ha la chat aperta e in primo piano** non riceve il push, ma solo suono e vibrazione.
+  - **A bordo**: le push passano dai server di Apple e Google, quindi la nave deve sbloccare
+    anche `*.push.apple.com` (iPhone) e `fcm.googleapis.com` e `mtalk.google.com` (Android).
+    Se non li sbloccano, le push non arrivano ma tutto il resto funziona.
+- **Chiavi delle notifiche (VAPID)**: si generano da sole e vengono salvate in `DATA_DIR/vapid.json`.
+  Si possono anche fissare con `VAPID_PUBLIC_KEY` e `VAPID_PRIVATE_KEY`; senza un disco persistente,
+  a ogni riavvio bisogna riattivare le notifiche.
+
 ## Chi può entrare
 
 Possono registrarsi **solo i partecipanti della Global Reunion**: le email delle
