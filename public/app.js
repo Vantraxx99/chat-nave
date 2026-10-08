@@ -118,12 +118,12 @@
     return data;
   }
 
-  function toast(text) {
+  function toast(text, ms = 3000) {
     const t = $('#toast');
     t.textContent = text;
     t.classList.remove('hidden');
     clearTimeout(toast.timer);
-    toast.timer = setTimeout(() => t.classList.add('hidden'), 3000);
+    toast.timer = setTimeout(() => t.classList.add('hidden'), ms);
   }
 
   // Errori imprevisti: li mostriamo in un avviso, così sul telefono si vede cosa non va.
@@ -795,6 +795,28 @@
       body.append(el('p', null, label));
       if (st === 'off') body.append(menuButton('🔔  Turn on push notifications', async () => { if (await enablePush()) closeModal(); }, 'primary'));
       if (st === 'on') body.append(menuButton('🔕  Turn off on this device', async () => { await disablePush(); toast('Notifications off'); closeModal(); refreshPushCard(); }));
+      if (st === 'on') {
+        // Prova: dice subito se il server conosce questo telefono e cosa risponde Apple/Google.
+        body.append(menuButton('🧪  Send a test notification now', async () => {
+          await syncPush();
+          try {
+            const { results } = await api('POST', '/api/push/test', { delay: 0 });
+            if (!results.length) return toast('⚠️ The server has no notification address for you. Turn notifications off and on again here.', 9000);
+            const bad = results.filter((r) => !r.ok);
+            if (!bad.length) return toast(`✅ Sent to ${results.length} device${results.length === 1 ? '' : 's'}. If nothing shows up, check iPhone Settings → Notifications → Global Reunion and Focus mode.`, 9000);
+            toast(`⚠️ Not delivered (${bad.map((r) => `${r.device}: ${r.status || ''} ${r.error}`).join(' · ')})`, 12000);
+          } catch (e) { toast(e.message); }
+        }));
+        body.append(menuButton('🔒  Test with the app closed (arrives in 15 s)', async () => {
+          await syncPush();
+          try {
+            const { devices } = await api('POST', '/api/push/test', { delay: 15 });
+            if (!devices) return toast('⚠️ The server has no notification address for you. Turn notifications off and on again here.', 9000);
+            closeModal();
+            toast('Now close the app and lock your phone: the test arrives in 15 seconds', 6000);
+          } catch (e) { toast(e.message); }
+        }));
+      }
       const soundBtn = menuButton('', () => { prefs.sound = !prefs.sound; savePrefs(); paint(); if (prefs.sound) { unlockAudio(); playTone('message'); } });
       const vibBtn = menuButton('', () => { prefs.vibrate = !prefs.vibrate; savePrefs(); paint(); if (prefs.vibrate && navigator.vibrate) navigator.vibrate(80); });
       const paint = () => {

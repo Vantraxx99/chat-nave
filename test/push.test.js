@@ -71,6 +71,12 @@ test('le notifiche arrivano a chi deve riceverle e non ha l\'app davanti', async
     assert.deepEqual(sent.map((s) => s.endpoint).sort(), ['https://push.example/anna', 'https://push.example/bruno']);
     assert.equal(sent[0].title, '📢 Announcements');
 
+    // Notifica di prova dal menu: risultato per dispositivo
+    sent.length = 0;
+    const t = (await bruno('POST', '/api/push/test', { delay: 0 })).body;
+    assert.deepEqual(t.results, [{ device: 'push.example', ok: true }]);
+    assert.equal(sent[0].title, '🔔 Test notification');
+
     // Disiscrizione
     await bruno('POST', '/api/push/unsubscribe', { endpoint: 'https://push.example/bruno' });
     sent.length = 0;

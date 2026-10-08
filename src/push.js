@@ -81,6 +81,22 @@ function notify(userIds, message, exclude = new Set()) {
   return rows.length;
 }
 
+// Prova dal menu Notifiche: manda subito a tutti i dispositivi di una persona e dice com'è andata.
+async function test(userId, message) {
+  const rows = q.forUser.all(userId);
+  const payload = JSON.stringify(message);
+  return Promise.all(rows.map(async (row) => {
+    const device = hostOf(row.endpoint);
+    try {
+      await sender({ endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } }, payload);
+      return { device, ok: true };
+    } catch (err) {
+      if (err && (err.statusCode === 404 || err.statusCode === 410)) q.remove.run(row.endpoint);
+      return { device, ok: false, status: err && err.statusCode, error: String((err && (err.body || err.message)) || err).slice(0, 160) };
+    }
+  }));
+}
+
 function setSender(fn) { sender = fn; }
 
-module.exports = { publicKey: keys.publicKey, subscribe, unsubscribe, notify, setSender };
+module.exports = { publicKey: keys.publicKey, subscribe, unsubscribe, notify, test, setSender };

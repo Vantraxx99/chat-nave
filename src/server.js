@@ -95,6 +95,7 @@ const q = {
        OR c.id IN (SELECT conversation_id FROM members WHERE user_id = ?)
        OR (c.type = 'staff' AND ? = 1)`),
   adminIds: db.prepare(`SELECT id FROM users WHERE is_admin = 1 AND banned = 0`),
+  pushCount: db.prepare(`SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?`),
   getSetting: db.prepare(`SELECT content FROM info WHERE id = ?`),
   setSetting: db.prepare(`INSERT INTO info (id, content, updated_by, updated_at) VALUES (?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_by = excluded.updated_by, updated_at = excluded.updated_at`),
@@ -1142,6 +1143,20 @@ route('POST', '/api/push/subscribe', async (req) => {
   const body = await readJson(req);
   if (!push.subscribe(user.id, body.subscription)) throw new HttpError(400, 'Invalid notification subscription');
   return { ok: true };
+});
+
+// Notifica di prova: { delay } in secondi (0–30) per avere il tempo di bloccare il telefono.
+route('POST', '/api/push/test', async (req) => {
+  const user = auth(req);
+  const { delay } = await readJson(req);
+  const wait = Math.min(30, Math.max(0, Number(delay) || 0)) * 1000;
+  const message = { title: '🔔 Test notification', body: 'Notifications work on this phone 🎉', tag: 'test' };
+  if (!wait) return { results: await push.test(user.id, message) };
+  const devices = q.pushCount.get(user.id).n;
+  setTimeout(() => push.test(user.id, message).then((r) => {
+    for (const x of r) if (!x.ok) console.error(`push di prova fallita (utente ${user.id}, ${x.device}): ${x.status || ''} ${x.error}`);
+  }), wait);
+  return { devices };
 });
 
 route('POST', '/api/push/unsubscribe', async (req) => {
