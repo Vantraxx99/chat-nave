@@ -50,6 +50,8 @@ const queue = [];
 let active = 0;
 const MAX_PARALLEL = 20;
 
+const hostOf = (u) => { try { return new URL(u).host; } catch { return '?'; } };
+
 function pump() {
   while (active < MAX_PARALLEL && queue.length) {
     const { row, payload } = queue.shift();
@@ -59,6 +61,8 @@ function pump() {
       .catch((err) => {
         // 404/410: l'iscrizione non esiste più (app disinstallata, permesso revocato).
         if (err && (err.statusCode === 404 || err.statusCode === 410)) q.remove.run(row.endpoint);
+        // Nei log di Render: utile per capire perché a qualcuno non arrivano le notifiche.
+        else console.error(`push non inviata (utente ${row.user_id}, ${hostOf(row.endpoint)}): ${err && (err.statusCode || err.code) || ''} ${err && err.body ? String(err.body).slice(0, 120) : (err && err.message) || err}`);
       })
       .finally(() => { active--; pump(); });
   }

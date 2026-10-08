@@ -334,6 +334,7 @@
     show('app');
     renderConvList();
     refreshPushCard();
+    syncPush();
     const fromHash = Number(location.hash.slice(1));
     if (fromHash && state.convs.has(fromHash)) openConv(fromHash);
     poll();
@@ -613,6 +614,24 @@
       return false;
     }
   }
+
+  // A ogni apertura: se le notifiche sono attive, il telefono rimanda al server il suo
+  // "indirizzo" per le notifiche. Così il server lo ritrova anche se l'aveva perso
+  // (database rifatto, iscrizione scaduta, chiavi cambiate) e non resta muto.
+  async function syncPush() {
+    try {
+      if (demo || !pushSupported || Notification.permission !== 'granted' || (isIOS && !isStandalone)) return;
+      const reg = swReg || await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      const { publicKey } = await api('GET', '/api/push/key');
+      const key = urlB64ToBytes(publicKey);
+      const old = sub && sub.options && sub.options.applicationServerKey;
+      if (sub && old && !sameBytes(new Uint8Array(old), key)) { await sub.unsubscribe(); sub = null; }
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      await api('POST', '/api/push/subscribe', { subscription: sub.toJSON() });
+    } catch {}
+  }
+  function sameBytes(a, b) { return a.length === b.length && a.every((v, i) => v === b[i]); }
 
   async function disablePush() {
     try {
