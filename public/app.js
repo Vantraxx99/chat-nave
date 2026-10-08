@@ -118,6 +118,13 @@
     toast.timer = setTimeout(() => t.classList.add('hidden'), 3000);
   }
 
+  // Errori imprevisti: li mostriamo in un avviso, così sul telefono si vede cosa non va.
+  window.addEventListener('error', (e) => { if (e && e.message) toast('⚠️ ' + e.message); });
+  window.addEventListener('unhandledrejection', (e) => {
+    const r = e && e.reason;
+    if (r && r.name !== 'AbortError' && r.message && r.message !== 'auth') toast('⚠️ ' + r.message);
+  });
+
   // ------------------------------------------------------------ Utility
   const initials = (name) => (name || '?').replace(/[^\p{L}\p{N}\s]/gu, '').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || (name || '?').slice(0, 2);
   // Colori dell'evento assegnati in modo stabile a ogni persona (avatar e nome nelle chat).
@@ -956,9 +963,11 @@
       $('#chat-view').classList.add('hidden');
       $('#chat-empty').classList.remove('hidden');
     };
-    if (isPhone()) setTimeout(hide, 320); else hide();
+    if (isPhone() && !document.body.classList.contains('instant')) setTimeout(hide, 320); else hide();
   }
+  let backByButton = false;
   function goBack() {
+    backByButton = true; // indietro con la nostra freccia: la chat esce con la sua animazione
     if (history.state && history.state.chat) history.back(); else closeConv();
   }
 
@@ -1031,7 +1040,16 @@
   }
   $('#btn-back').addEventListener('click', goBack);
   window.addEventListener('popstate', () => {
-    if (state.current && !(history.state && history.state.chat)) closeConv();
+    if (state.current && !(history.state && history.state.chat)) {
+      // Indietro con il gesto di iOS (scorrere da sinistra): il sistema ha già animato il
+      // passaggio, quindi chiudiamo la chat senza la nostra animazione (niente doppio scatto).
+      if (!backByButton) {
+        document.body.classList.add('instant');
+        requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('instant')));
+      }
+      closeConv();
+    }
+    backByButton = false;
   });
 
   function renderChatHeader() {

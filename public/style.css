@@ -459,14 +459,18 @@ input, textarea { font: inherit; color: inherit; }
   /* La chat entra da destra sopra la lista, come su WhatsApp/iOS: la lista resta sotto
      (e mantiene il punto in cui eri). Solo transform: fluido anche sui telefoni lenti. */
   #app { position: relative; }
-  #sidebar { width: 100%; border-right: 0; transition: transform .3s cubic-bezier(.2, .8, .2, 1), visibility 0s; }
+  /* (niente "visibility" animata: con le trasformazioni Safari a volte non ridisegna il
+     pannello e resta una schermata vuota/blu. La chat chiusa sta semplicemente fuori schermo.) */
+  #sidebar { width: 100%; border-right: 0; transition: transform .3s cubic-bezier(.2, .8, .2, 1); }
   #chat {
-    position: absolute; inset: 0; z-index: 5; transform: translate3d(100%, 0, 0); visibility: hidden;
-    box-shadow: -8px 0 24px rgba(7, 37, 61, .18);
-    transition: transform .3s cubic-bezier(.2, .8, .2, 1), visibility 0s .3s;
+    position: absolute; inset: 0; z-index: 5; transform: translate3d(105%, 0, 0); pointer-events: none;
+    box-shadow: -8px 0 24px rgba(7, 37, 61, .18); will-change: transform;
+    transition: transform .3s cubic-bezier(.2, .8, .2, 1);
   }
-  body.in-chat #chat { transform: none; visibility: visible; transition: transform .3s cubic-bezier(.2, .8, .2, 1), visibility 0s; }
-  body.in-chat #sidebar { transform: translate3d(-28%, 0, 0); visibility: hidden; transition: transform .3s cubic-bezier(.2, .8, .2, 1), visibility 0s .3s; }
+  body.in-chat #chat { transform: none; pointer-events: auto; }
+  body.in-chat #sidebar { transform: translate3d(-28%, 0, 0); pointer-events: none; }
+  /* Indietro con il gesto di iOS: l'animazione la fa già il sistema, la nostra la saltiamo. */
+  body.instant #chat, body.instant #sidebar { transition: none !important; }
   .back { display: inline-flex; }
   .msg { max-width: 86%; }
   .modal { align-items: flex-end; padding: 0; }
