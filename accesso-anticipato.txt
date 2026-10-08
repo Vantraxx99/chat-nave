@@ -1,0 +1,4 @@
+# Email che possono registrarsi anche quando le iscrizioni sono chiuse (una per riga).
+# Gli organizzatori (organizzatori.txt) possono sempre entrare.
+orlando.palomba@gmail.com
+catellocuomo83@gmail.com

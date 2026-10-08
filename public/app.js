@@ -275,6 +275,7 @@
     try {
       if (loginStep === 'email') {
         const res = await api('POST', '/api/login/check', { email });
+        if (res.step === 'closed') return err('Sign-ups are not open yet: the organisers will send you the link when the chat opens. See you soon! 🚢');
         if (res.step === 'not-allowed') return err('This email is not on the Global Reunion participant list. Use the one you booked the trip with, or ask an organiser to allow it.');
         codeRequired = !!res.codeRequired;
         return setLoginStep(res.step);
@@ -2160,11 +2161,28 @@
     });
   }
 
+  // Organizzatori: aprire o chiudere le iscrizioni. Chi ha già un account entra sempre.
+  function signupsDialog() {
+    openModal('Sign-ups', async (body) => {
+      let open;
+      try { open = (await api('GET', '/api/admin/signups')).open; } catch (e) { body.append(el('p', null, e.message)); return; }
+      body.append(el('p', null, open
+        ? '🟢 Open: everyone on the participant list can create an account.'
+        : '🔴 Closed: only organisers, the early-access emails and the emails you allowed can create an account. People who already have one can still sign in.'));
+      body.append(menuButton(open ? '🔒  Close sign-ups' : '🔓  Open sign-ups to everyone', async () => {
+        if (!open && !await askConfirm('Open sign-ups? Everyone on the participant list will be able to create an account.', 'Open')) return;
+        try { await api('PUT', '/api/admin/signups', { open: !open }); toast(open ? '🔒 Sign-ups closed' : '🔓 Sign-ups open'); closeModal(); }
+        catch (e) { toast(e.message); }
+      }, open ? '' : 'primary'));
+    });
+  }
+
   $('#btn-menu').addEventListener('click', () => {
     openModal('Menu', (body) => {
       body.append(el('p', 'muted', 'Signed in as ' + state.me.name + (state.me.isAdmin ? ' ⭐ organiser' : '')));
       if (state.me.isAdmin) {
         body.append(menuButton('✉️  Allow an email (organisers)', allowEmailDialog));
+        body.append(menuButton('🔐  Sign-ups for new participants', signupsDialog));
         body.append(menuButton('📊  Stats', async () => {
           try {
             const s = await api('GET', '/api/admin/stats');

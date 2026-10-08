@@ -28,6 +28,15 @@ function loadAdminEmails() {
   return new Set([...lines, ...String(process.env.ADMIN_EMAILS || '').split(',')].map(normalizeEmail).filter(Boolean));
 }
 const ADMIN_EMAILS = loadAdminEmails();
+// Iscrizioni chiuse (finché un organizzatore non le apre dal menu): possono creare un account
+// solo gli organizzatori, le email di accesso-anticipato.txt e quelle abilitate a mano dagli
+// organizzatori. Chi ha già un account entra sempre.
+function loadEarlyEmails() {
+  let txt = '';
+  try { txt = fs.readFileSync(path.join(__dirname, '..', 'accesso-anticipato.txt'), 'utf8'); } catch {}
+  return new Set(txt.split('\n').filter((l) => !l.trim().startsWith('#')).map(normalizeEmail).filter(Boolean));
+}
+const EARLY_EMAILS = loadEarlyEmails();
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const POLL_TIMEOUT_MS = 25_000; // sotto i 30s tipici dei proxy
 const MAX_TEXT = 1000;
@@ -86,6 +95,9 @@ const q = {
        OR c.id IN (SELECT conversation_id FROM members WHERE user_id = ?)
        OR (c.type = 'staff' AND ? = 1)`),
   adminIds: db.prepare(`SELECT id FROM users WHERE is_admin = 1 AND banned = 0`),
+  getSetting: db.prepare(`SELECT content FROM info WHERE id = ?`),
+  setSetting: db.prepare(`INSERT INTO info (id, content, updated_by, updated_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_by = excluded.updated_by, updated_at = excluded.updated_at`),
   getInfo: db.prepare(`SELECT i.content, i.updated_at, u.name AS updated_by FROM info i LEFT JOIN users u ON u.id = i.updated_by WHERE i.id = 'main'`),
   setInfo: db.prepare(`
     INSERT INTO info (id, content, updated_by, updated_at) VALUES ('main', ?, ?, ?)
@@ -605,6 +617,7 @@ route('POST', '/api/login/send-code', async (req) => {
   const user = q.userByEmail.get(email);
   if (user && user.password_hash) throw new HttpError(400, 'This account already has a password: sign in with it');
   if (!user && LIST_ONLY && !isAllowedEmail(email)) throw loginFailed(req, 403, 'This email is not on the Global Reunion participant list');
+  if (!user && !canSignUpNow(email)) throw new HttpError(403, CLOSED_MSG);
   const prev = q.getCode.get(email, 'email');
   const now = Date.now();
   if (prev && now - prev.sent_at < 60_000) throw new HttpError(429, 'We just sent you a code: wait a minute before asking for a new one');
@@ -632,6 +645,7 @@ route('POST', '/api/login/check', async (req) => {
   const user = q.userByEmail.get(email);
   if (user && user.password_hash) return { step: 'password' };
   if (!user && LIST_ONLY && !isAllowedEmail(email)) return { step: 'not-allowed' };
+  if (!user && !canSignUpNow(email)) return { step: 'closed' };
   // codeRequired: prima di creare l'account (o la nuova password) arriva un codice per email.
   return { step: user ? 'setup' : 'new', codeRequired: mail.enabled };
 });
@@ -675,6 +689,7 @@ route('POST', '/api/register', async (req) => {
     if (LIST_ONLY && !isAllowedEmail(email)) {
       throw loginFailed(req, 403, 'This email is not on the Global Reunion participant list. Use the one you booked the trip with, or ask an organiser to allow it.');
     }
+    if (!canSignUpNow(email)) throw new HttpError(403, CLOSED_MSG);
     if (JOIN_CODE && normalizeCode(body.joinCode) !== JOIN_CODE) throw loginFailed(req, 401, 'Invalid event code');
     const newPassword = checkNewPassword(password);
     // L'account nasce solo con il codice arrivato a quella email: così è davvero di chi la usa.
@@ -709,6 +724,16 @@ route('PUT', '/api/me/password', async (req) => {
   q.deleteOtherSessions.run(user.id, parseCookies(req)[COOKIE]);
   return { ok: true };
 });
+
+// Finché nessun organizzatore le apre: chiuse sul sito vero, aperte in locale e nei test.
+const signupsOpen = () => {
+  const row = q.getSetting.get('signups');
+  return row ? row.content === 'open' : process.env.NODE_ENV !== 'production';
+};
+function canSignUpNow(email) {
+  return signupsOpen() || ADMIN_EMAILS.has(email) || EARLY_EMAILS.has(email) || !!q.isAllowed.get(email);
+}
+const CLOSED_MSG = 'Sign-ups are not open yet: the organisers will send you the link when the chat opens. See you soon! 🚢';
 
 function isAllowedEmail(email) {
   return ADMIN_EMAILS.has(email) || PARTICIPANT_HASHES.has(hashEmail(email)) || !!q.isAllowed.get(email);
@@ -1161,6 +1186,19 @@ route('POST', '/api/admin/allow', async (req) => {
   const already = isAllowedEmail(email) || !!q.userByEmail.get(email);
   if (!already) q.allowEmail.run(email, user.id, Date.now());
   return { ok: true, already };
+});
+
+// Apre o chiude le iscrizioni per i nuovi partecipanti.
+route('GET', '/api/admin/signups', async (req) => {
+  requireAdmin(auth(req));
+  return { open: signupsOpen() };
+});
+route('PUT', '/api/admin/signups', async (req) => {
+  const user = auth(req);
+  requireAdmin(user);
+  const { open } = await readJson(req);
+  q.setSetting.run('signups', open ? 'open' : 'closed', user.id, Date.now());
+  return { open: signupsOpen() };
 });
 
 route('GET', '/api/admin/stats', async (req) => {
