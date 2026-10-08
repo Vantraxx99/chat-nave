@@ -429,6 +429,9 @@
   // Quando l'app passa in primo piano o in background riapriamo la richiesta,
   // così il server sa se mandare la notifica push o no.
   document.addEventListener('visibilitychange', () => {
+    if (state.me && !demo && document.visibilityState === 'hidden' && navigator.sendBeacon) {
+      try { navigator.sendBeacon('/api/away', new Blob(['{}'], { type: 'application/json' })); } catch {}
+    }
     if (state.me && state.pollCtrl && !demo) state.pollCtrl.abort();
     if (document.visibilityState === 'visible' && wakePoll) wakePoll();
     if (document.visibilityState === 'visible' && !demo) fetch('/healthz', { cache: 'no-store' }).then(checkVersion).catch(() => {});

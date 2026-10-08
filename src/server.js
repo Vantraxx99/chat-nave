@@ -1029,6 +1029,15 @@ route('GET', '/api/messages/:id/reactions', async (req, res, { id }) => {
   return { reactions: q.reactionUsers.all(msg.id).map((r) => ({ emoji: r.emoji, userId: r.id, name: r.name })) };
 });
 
+// L'app è appena andata in background (telefono bloccato, cambio app): la richiesta in attesa
+// potrebbe restare "appesa" senza che il telefono la riceva. La chiudiamo, così il prossimo
+// messaggio parte come notifica push e la spunta doppia arriva solo quando è vera.
+route('POST', '/api/away', async (req) => {
+  const user = auth(req);
+  for (const w of [...waiters]) if (w.userId === user.id) w.respond([]);
+  return { ok: true };
+});
+
 // La notifica push è arrivata sul telefono (la segnala il service worker): seconda spunta.
 route('POST', '/api/delivered', async (req) => {
   const user = auth(req);

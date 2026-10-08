@@ -42,6 +42,15 @@ test('polling breve e consegna confermata dal service worker', async () => {
     const r = (await anna('GET', `/api/conversations/${dm}/messages`)).body.receipt;
     assert.deepEqual([r.read, r.delivered], [0, m.id]);
 
+    // Bruno blocca il telefono: la richiesta in attesa si chiude subito
+    const bcur = (await bruno('GET', '/api/me')).body.cursor;
+    const t1 = Date.now();
+    const pending = bruno('GET', `/api/poll?since=${bcur}&v=1`);
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal((await bruno('POST', '/api/away', {})).status, 200);
+    await pending;
+    assert.ok(Date.now() - t1 < 2000);
+
     // Chi non vede la chat non può segnarla come consegnata
     assert.equal((await carla('POST', '/api/delivered', { messageId: m.id })).status, 404);
     assert.equal((await carla('POST', '/api/delivered', { messageId: 999999 })).status, 404);
