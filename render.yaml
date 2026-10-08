@@ -1,12 +1,11 @@
 # Deploy su Render (https://render.com): New → Blueprint → scegli questo repository.
-# Piano Starter + disco persistente per il periodo delle iscrizioni; qualche giorno prima della
-# crociera passate a "standard" (più CPU per 2000–3000 persone collegate insieme).
+# Piano Standard (1 CPU, 2 GB: regge 2000–3000 persone collegate insieme) + disco persistente.
 # Il disco tiene database e chiavi delle notifiche: senza, tutto si perde a ogni riavvio.
 services:
   - type: web
     name: global-reunion-chat
     runtime: node
-    plan: starter
+    plan: standard
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /healthz
