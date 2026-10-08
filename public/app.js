@@ -93,7 +93,7 @@
         || (state.current && isPhone());
       if (busy) return setTimeout(tryReload, 3000);
       try { sessionStorage.setItem('gr-skip-splash', '1'); } catch {}
-      try { history.replaceState(null, '', location.pathname); } catch {}
+      try { history.replaceState(history.state && history.state.list ? history.state : null, '', location.pathname); } catch {}
       location.reload();
     };
     tryReload();
@@ -348,7 +348,13 @@
     // Si parte sempre dalla lista (anche dopo un aggiornamento o da una notifica): la chat
     // si apre sopra, così "indietro" torna alla lista e non esce dall'app.
     const fromHash = Number(location.hash.slice(1));
-    try { history.replaceState(null, '', location.pathname); } catch {}
+    // Su telefono, dietro la lista c'è una pagina "di guardia" dell'app: scorrendo indietro
+    // dalla lista si torna lì e l'app rimette subito la lista, invece di finire sulla pagina
+    // vuota del browser che iOS tiene in fondo alla cronologia.
+    try {
+      if (isPhone()) { history.replaceState({ root: true }, '', location.pathname); history.pushState({ list: true }, '', location.pathname); }
+      else history.replaceState(null, '', location.pathname);
+    } catch {}
     if (fromHash && state.convs.has(fromHash)) openConv(fromHash);
     poll();
     // Chi era entrato prima delle password ne sceglie una subito.
@@ -1149,6 +1155,7 @@
       }
       closeConv();
     }
+    if (history.state && history.state.root) { try { history.pushState({ list: true }, '', location.pathname); } catch {} }
     backByButton = false;
   });
 
