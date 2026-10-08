@@ -77,7 +77,7 @@ const q = {
   dmByKey: db.prepare(`SELECT * FROM conversations WHERE dm_key = ?`),
   insertConv: db.prepare(`INSERT INTO conversations (type, name, dm_key, created_by, created_at) VALUES (?, ?, ?, ?, ?)`),
   visibleConvs: db.prepare(`
-    SELECT c.id, c.type, c.name, c.dm_key,
+    SELECT c.id, c.type, c.name, c.dm_key, c.resolved_id, (SELECT name FROM users WHERE id = c.resolved_by) AS resolved_by_name,
       (SELECT MAX(id) FROM messages WHERE conversation_id = c.id) AS last_id,
       COALESCE((SELECT last_read_id FROM reads WHERE user_id = ? AND conversation_id = c.id), 0) AS last_read_id,
       COALESCE((SELECT cleared_id FROM cleared WHERE user_id = ? AND conversation_id = c.id), 0) AS cleared_id
@@ -124,6 +124,13 @@ const q = {
   upsertRead: db.prepare(`
     INSERT INTO reads (user_id, conversation_id, last_read_id) VALUES (?, ?, ?)
     ON CONFLICT(user_id, conversation_id) DO UPDATE SET last_read_id = MAX(last_read_id, excluded.last_read_id)`),
+  markDelivered: db.prepare(`
+    INSERT INTO reads (user_id, conversation_id, last_read_id, delivered_id) VALUES (?, ?, 0, ?)
+    ON CONFLICT(user_id, conversation_id) DO UPDATE SET delivered_id = MAX(delivered_id, excluded.delivered_id)
+    WHERE excluded.delivered_id > reads.delivered_id`),
+  readStates: db.prepare(`SELECT user_id, last_read_id, delivered_id FROM reads WHERE conversation_id = ?`),
+  convById: db.prepare(`SELECT * FROM conversations WHERE id = ?`),
+  setResolved: db.prepare(`UPDATE conversations SET resolved_id = ?, resolved_by = ? WHERE id = ?`),
   since: db.prepare(`
     SELECT m.id, m.conversation_id, m.user_id, u.name AS user_name, m.text, m.deleted, m.created_at, m.seq, m.reactions,
       m.reply_to, r.user_id AS r_user_id, ru.name AS r_user_name, r.text AS r_text, r.deleted AS r_deleted
@@ -188,7 +195,14 @@ function conversationSummary(row, user) {
     lastMessage: last ? publicMsg(last) : null,
     unread: q.unread.get(row.id, Math.max(row.last_read_id, row.cleared_id), userId).n,
     clearedId: row.cleared_id || 0,
+    receipt: receiptFor(row, userId),
   };
+  if (row.type === 'staff' && user.is_admin) {
+    const owner = q.members.all(row.id)[0];
+    summary.ownerId = owner ? owner.id : null;
+    summary.resolvedId = row.resolved_id || 0;
+    summary.resolvedBy = row.resolved_by_name || null;
+  }
   if (row.type === 'dm') {
     const other = q.members.all(row.id).find((u) => u.id !== userId);
     summary.otherUserId = other ? other.id : null;
@@ -209,6 +223,73 @@ function recipientsOf(conv) {
   const ids = new Set(q.memberIds.all(conv.id).map((r) => r.user_id));
   if (conv.type === 'staff') for (const r of q.adminIds.all()) ids.add(r.id);
   return [...ids];
+}
+
+// --- Spunte (inviato ✓ · consegnato ✓✓ · letto ✓✓ blu) ---------------------------
+// Per chi guarda la chat: fin dove gli ALTRI hanno ricevuto (delivered) e letto (read).
+// Chat private e gruppi: contano tutti gli altri (nei gruppi blu = letto da tutti).
+// Chat con lo staff: per il partecipante basta un organizzatore qualsiasi.
+const RECEIPT_MAX_MEMBERS = 256;
+function receiptFor(conv, viewerId) {
+  if (!conv || !['dm', 'group', 'staff'].includes(conv.type)) return null;
+  const members = q.memberIds.all(conv.id).map((r) => r.user_id);
+  if (members.length > RECEIPT_MAX_MEMBERS) return null;
+  let others, any = false;
+  if (conv.type === 'staff') {
+    if (members.includes(viewerId)) { others = q.adminIds.all().map((r) => r.id).filter((id) => id !== viewerId); any = true; }
+    else others = members;
+  } else others = members.filter((id) => id !== viewerId);
+  if (!others.length) return null;
+  const st = new Map(q.readStates.all(conv.id).map((r) => [r.user_id, r]));
+  const vals = others.map((id) => { const r = st.get(id) || { last_read_id: 0, delivered_id: 0 }; return [r.last_read_id, Math.max(r.delivered_id, r.last_read_id)]; });
+  const pick = any ? Math.max : Math.min;
+  return { conversationId: conv.id, read: pick(...vals.map((v) => v[0])), delivered: pick(...vals.map((v) => v[1])) };
+}
+// Chi deve ricevere spunte aggiornate (consegnate al prossimo polling, o subito se in attesa).
+const pendingReceipts = new Map(); // userId -> Set(convId)
+let receiptTimer = null;
+function receiptsChanged(conv, actorId) {
+  if (!['dm', 'group', 'staff'].includes(conv.type)) return;
+  for (const id of recipientsOf(conv)) {
+    if (id === actorId) continue;
+    if (!pendingReceipts.has(id)) pendingReceipts.set(id, new Set());
+    pendingReceipts.get(id).add(conv.id);
+  }
+  if (!receiptTimer) receiptTimer = setTimeout(() => {
+    receiptTimer = null;
+    for (const w of [...waiters]) if (pendingReceipts.has(w.userId)) w.respond([]);
+  }, 250);
+}
+// Chat cambiate per qualcuno (es. richiesta segnata come risolta): riceve il riepilogo aggiornato.
+const pendingConvs = new Map(); // userId -> Set(convId)
+function convChanged(conv, userIds) {
+  for (const id of userIds) {
+    if (!pendingConvs.has(id)) pendingConvs.set(id, new Set());
+    pendingConvs.get(id).add(conv.id);
+  }
+  for (const w of [...waiters]) if (pendingConvs.has(w.userId)) w.respond([]);
+}
+function drainConvs(user) {
+  const set = pendingConvs.get(user.id);
+  if (!set) return [];
+  pendingConvs.delete(user.id);
+  return q.visibleConvs.all(user.id, user.id, user.id, user.is_admin).filter((r) => set.has(r.id)).map((r) => conversationSummary(r, user));
+}
+function drainReceipts(userId) {
+  const set = pendingReceipts.get(userId);
+  if (!set) return [];
+  pendingReceipts.delete(userId);
+  return [...set].map((id) => receiptFor(q.convById.get(id), userId)).filter(Boolean);
+}
+// Quello che è arrivato sul telefono di userId: aggiorna "consegnato" e avvisa i mittenti.
+function noteDelivered(userId, rows) {
+  const best = new Map();
+  for (const m of rows) if (m.user_id !== userId && !m.deleted) best.set(m.conversation_id, Math.max(best.get(m.conversation_id) || 0, m.id));
+  for (const [convId, id] of best) {
+    const conv = q.convById.get(convId);
+    if (!conv || !['dm', 'group', 'staff'].includes(conv.type)) continue;
+    if (q.markDelivered.run(userId, convId, id).changes) receiptsChanged(conv, userId);
+  }
 }
 
 function notify(conv) {
@@ -634,7 +715,10 @@ route('POST', '/api/logout', async (req) => {
 
 route('GET', '/api/me', async (req) => {
   const user = auth(req);
-  const conversations = q.visibleConvs.all(user.id, user.id, user.id, user.is_admin).map((r) => conversationSummary(r, user));
+  const rows = q.visibleConvs.all(user.id, user.id, user.id, user.is_admin);
+  // Le ultime righe della lista sono arrivate sul telefono: spunte "consegnato" per i mittenti.
+  noteDelivered(user.id, rows.filter((r) => r.last_id && r.last_id > r.cleared_id).map((r) => q.msgById.get(r.last_id)).filter(Boolean));
+  const conversations = rows.map((r) => conversationSummary(r, user));
   return {
     user: { id: user.id, name: user.name, isAdmin: !!user.is_admin, profile: readProfile(q.userProfile.get(user.id)), hasPassword: !!user.has_password },
     cursor: seq,
@@ -722,8 +806,9 @@ route('GET', '/api/conversations/:id/messages', async (req, res, { id }, url) =>
   if (rows.length) {
     const mine = new Map(q.myReactions.all(user.id, rows[0].id, rows[rows.length - 1].id).map((r) => [r.message_id, r.emoji]));
     for (const m of messages) m.myReaction = mine.get(m.id) || null;
+    noteDelivered(user.id, rows);
   }
-  return { messages, hasMore: rows.length === 50 };
+  return { messages, hasMore: rows.length === 50, receipt: receiptFor(conv, user.id) };
 });
 
 route('POST', '/api/conversations/:id/messages', async (req, res, { id }) => {
@@ -802,7 +887,7 @@ route('POST', '/api/conversations/:id/read', async (req, res, { id }) => {
   const conv = getConvOr404(id, user);
   const body = await readJson(req);
   const lastId = Number(body.messageId) || 0;
-  if (lastId > 0) q.upsertRead.run(user.id, conv.id, lastId);
+  if (lastId > 0) { q.upsertRead.run(user.id, conv.id, lastId); receiptsChanged(conv, user.id); }
   return { ok: true };
 });
 
@@ -851,6 +936,21 @@ route('POST', '/api/conversations/:id/members', async (req, res, { id }) => {
   }
   if (added.length) postMessage(conv, user.id, `➕ ${user.name} added ${added.join(', ')}`);
   return { ok: true };
+});
+
+// Organizzatori: richiesta allo staff risolta → archiviata per tutti gli organizzatori; torna
+// attiva da sola se il partecipante riscrive. resolved:false la riapre.
+route('POST', '/api/conversations/:id/resolve', async (req, res, { id }) => {
+  const user = auth(req);
+  requireAdmin(user);
+  const conv = getConvOr404(id, user);
+  if (conv.type !== 'staff') throw new HttpError(400, 'Only support chats can be resolved');
+  const body = await readJson(req);
+  const resolved = body.resolved !== false;
+  q.setResolved.run(resolved ? q.lastMsgId.get(conv.id).id : 0, resolved ? user.id : null, conv.id);
+  convChanged(conv, q.adminIds.all().map((r) => r.id).filter((x) => x !== user.id));
+  const row = q.visibleConvs.all(user.id, user.id, user.id, user.is_admin).find((r) => r.id === conv.id);
+  return conversationSummary(row, user);
 });
 
 // "Delete chat" come su WhatsApp: una chat privata sparisce dalla tua lista e si svuota solo
@@ -926,11 +1026,16 @@ route('GET', '/api/poll', async (req, res, params, url) => {
   const user = auth(req);
   const since = Math.max(0, Number(url.searchParams.get('since')) || 0);
   const rows = q.since.all(since, user.id, user.is_admin, user.id);
-  const reply = (list) => ({
-    messages: list.map(publicMsg),
-    cursor: list.length ? list[list.length - 1].seq : Math.max(since, seq),
-  });
-  if (rows.length) return reply(rows);
+  const reply = (list) => {
+    noteDelivered(user.id, list);
+    return {
+      messages: list.map(publicMsg),
+      cursor: list.length ? list[list.length - 1].seq : Math.max(since, seq),
+      receipts: drainReceipts(user.id),
+      conversations: drainConvs(user),
+    };
+  };
+  if (rows.length || pendingReceipts.has(user.id) || pendingConvs.has(user.id)) return reply(rows);
   return new Promise((resolve) => {
     const w = {
       userId: user.id,
@@ -942,7 +1047,8 @@ route('GET', '/api/poll', async (req, res, params, url) => {
         clearTimeout(w.timer);
         if (!shared) return resolve(reply(list));
         // Risposta già serializzata e compressa, condivisa con chi era allo stesso punto.
-        if (!shared.json) shared.json = Buffer.from(JSON.stringify(reply(list)));
+        // (solo messaggi pubblici: niente spunte né aggiornamenti personali, che arrivano al giro dopo)
+        if (!shared.json) shared.json = Buffer.from(JSON.stringify({ messages: list.map(publicMsg), cursor: list[list.length - 1].seq }));
         sendEncoded(req, res, shared);
         resolve();
       },

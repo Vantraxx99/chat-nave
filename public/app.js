@@ -14,6 +14,7 @@
     convs: new Map(),     // id -> summary
     messages: new Map(),  // convId -> Map(msgId -> msg)
     hasMore: new Map(),   // convId -> bool
+    receipts: new Map(),  // convId -> { read, delivered } (spunte dei miei messaggi)
     current: null,
     pollCtrl: null,
     refreshTimer: null,
@@ -319,7 +320,7 @@
     state.me = data.user;
     state.cursor = data.cursor;
     state.convs.clear();
-    for (const c of data.conversations) { c.lastSeenId = c.lastMessage ? c.lastMessage.id : 0; state.convs.set(c.id, c); }
+    for (const c of data.conversations) { c.lastSeenId = c.lastMessage ? c.lastMessage.id : 0; state.convs.set(c.id, c); if (c.receipt) state.receipts.set(c.id, c.receipt); }
     $('#me-avatar').title = state.me.name + (state.me.isAdmin ? ' (organiser)' : '');
     setAvatar($('#me-avatar'), { type: 'user', title: state.me.name, otherUserId: state.me.id });
     $('#tab-support').classList.toggle('hidden', !state.me.isAdmin);
@@ -337,7 +338,7 @@
     try {
       const data = await api('GET', '/api/me');
       state.convs.clear();
-      for (const c of data.conversations) { c.lastSeenId = c.lastMessage ? c.lastMessage.id : 0; state.convs.set(c.id, c); }
+      for (const c of data.conversations) { c.lastSeenId = c.lastMessage ? c.lastMessage.id : 0; state.convs.set(c.id, c); if (c.receipt) state.receipts.set(c.id, c.receipt); }
       if (state.current) {
         const c = state.convs.get(state.current);
         if (c) c.unread = 0;
@@ -369,6 +370,8 @@
         $('#offline').classList.add('hidden');
         delay = 0;
         state.cursor = Math.max(state.cursor, data.cursor);
+        if (data.receipts && data.receipts.length) applyReceipts(data.receipts);
+        if (data.conversations && data.conversations.length) mergeConvs(data.conversations);
         if (data.messages.length) {
           handleIncoming(data.messages);
           // Breve pausa prima della prossima richiesta: i messaggi arrivati nel frattempo
@@ -392,6 +395,56 @@
     if (state.me && state.pollCtrl && !demo) state.pollCtrl.abort();
     if (document.visibilityState === 'visible' && !demo) fetch('/healthz', { cache: 'no-store' }).then(checkVersion).catch(() => {});
   });
+
+  // ----------------------------------------------------------- Spunte
+  // ✓ inviato · ✓✓ consegnato (arrivato sul telefono) · ✓✓ blu letto. Il server manda,
+  // per ogni chat, fin dove gli altri hanno ricevuto e letto.
+  const TICK_CHATS = new Set(['dm', 'group', 'staff']);
+  const ICON_TICK = '<svg viewBox="0 0 16 11" width="16" height="11" aria-hidden="true"><path d="M1.5 6l3.2 3.2L11 2.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const ICON_TICKS = '<svg viewBox="0 0 16 11" width="16" height="11" aria-hidden="true"><path d="M1 6l3 3L10.2 2.5M6.6 8.4l.6.6L13.6 2.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  function tickState(m) {
+    const r = state.receipts.get(m.conversationId);
+    if (r && m.id <= r.read) return 'read';
+    if (r && m.id <= r.delivered) return 'delivered';
+    return 'sent';
+  }
+  function tickNode(m) {
+    const st = tickState(m);
+    const t = el('span', 'ticks ' + st);
+    t.innerHTML = st === 'sent' ? ICON_TICK : ICON_TICKS;
+    t.title = st === 'read' ? 'Read' : st === 'delivered' ? 'Delivered' : 'Sent';
+    return t;
+  }
+  function updateTicks() {
+    const store = state.messages.get(state.current);
+    if (!store) return;
+    for (const node of $('#messages').querySelectorAll('.msg.me .ticks')) {
+      const m = store.get(Number(node.closest('.msg').dataset.id));
+      if (m) node.replaceWith(tickNode(m));
+    }
+  }
+  function applyReceipts(list) {
+    let listChanged = false;
+    for (const r of list) {
+      state.receipts.set(r.conversationId, r);
+      if (r.conversationId === state.current) updateTicks();
+      const c = state.convs.get(r.conversationId);
+      if (c && c.lastMessage && c.lastMessage.userId === state.me.id) listChanged = true;
+    }
+    if (listChanged) renderConvList();
+  }
+  // Chat aggiornate dal server (es. una richiesta allo staff segnata come risolta da un altro organizzatore).
+  function mergeConvs(list) {
+    for (const c of list) {
+      const old = state.convs.get(c.id);
+      if (old) { c.lastSeenId = old.lastSeenId; c.unread = old.unread; }
+      else c.lastSeenId = c.lastMessage ? c.lastMessage.id : 0;
+      state.convs.set(c.id, c);
+      if (c.receipt) state.receipts.set(c.id, c.receipt);
+    }
+    renderConvList();
+    if (state.current) renderChatHeader();
+  }
 
   function handleIncoming(list) {
     let needRefresh = false;
@@ -681,7 +734,12 @@
 
   // ---------------------------------------------------- Lista delle chat
   // Chat di assistenza ricevute da un organizzatore (quelle dei partecipanti).
-  const isInbox = (c) => c.type === 'staff' && !c.virtual && state.me && state.me.isAdmin && c.title !== '🛟 Staff support';
+  // Organizzatori: tutte le chat con lo staff stanno nella voce unica "Staff support" e nella
+  // scheda Support. "Attive" = con messaggi e non segnate come risolte (o riscritte dopo).
+  const isInbox = (c) => c.type === 'staff' && !c.virtual && state.me && state.me.isAdmin;
+  const isActiveRequest = (c) => isInbox(c) && c.lastMessage && c.lastMessage.id > (c.resolvedId || 0);
+  const isResolvedRequest = (c) => isInbox(c) && c.lastMessage && c.lastMessage.id <= (c.resolvedId || 0);
+  let showResolved = false;
   const byTime = (a, b) => (b.lastMessage ? b.lastMessage.createdAt : 0) - (a.lastMessage ? a.lastMessage.createdAt : 0);
 
   function sortedConvs() {
@@ -689,15 +747,16 @@
     const pinned = (c) => (c.type === 'staff' ? 3 : c.type === 'announce' ? 2 : c.type === 'public' ? 1 : 0);
     // Chat private eliminate: nascoste finché non arriva un messaggio nuovo.
     const all = [...state.convs.values()].filter((c) => !(c.type === 'dm' && c.clearedId && !c.lastMessage && state.current !== c.id));
-    if (tab === 'support') return all.filter(isInbox).sort((a, b) => (b.unread ? 1 : 0) - (a.unread ? 1 : 0) || byTime(a, b));
+    if (tab === 'support') return all.filter(isActiveRequest).sort((a, b) => (b.unread ? 1 : 0) - (a.unread ? 1 : 0) || byTime(a, b));
     let list;
     if (state.me.isAdmin) {
       // Organizzatori: una sola voce "Staff support" che raccoglie tutte le richieste.
-      const inbox = all.filter(isInbox).sort(byTime);
+      const inbox = all.filter(isActiveRequest).sort(byTime);
       list = all.filter((c) => !isInbox(c));
       list.push({
         id: 'support-inbox', type: 'staff', title: '🛟 Staff support', virtual: 'inbox',
         unread: inbox.reduce((n, c) => n + (c.unread || 0), 0),
+        // (le richieste risolte stanno nella scheda Support, sezione "Resolved")
         lastMessage: inbox[0] ? inbox[0].lastMessage : null, count: inbox.length,
       });
     } else {
@@ -740,12 +799,28 @@
     let totalUnread = 0;
     for (const c of state.convs.values()) totalUnread += c.unread || 0;
     let shown = 0;
-    for (const c of sortedConvs()) {
+    let list = sortedConvs();
+    // Scheda Support: in fondo le richieste risolte, in una sezione che si apre a richiesta.
+    let resolvedCount = 0;
+    if (tab === 'support') {
+      const resolved = [...state.convs.values()].filter(isResolvedRequest).sort(byTime);
+      resolvedCount = resolved.length;
+      if (resolved.length) list = list.concat([{ sep: true }], showResolved ? resolved : []);
+    }
+    for (const c of list) {
+      if (c.sep) {
+        const sep = el('li', 'list-section');
+        sep.append(el('span', null, `✅ Resolved · ${resolvedCount}`), el('span', 'chev', showResolved ? 'Hide' : 'Show'));
+        sep.addEventListener('click', () => { showResolved = !showResolved; renderConvList(); });
+        ul.append(sep);
+        continue;
+      }
       if (filter && !c.title.toLowerCase().includes(filter)) continue;
       if (!TAB_TEST[tab](c)) continue;
       shown++;
       const li = el('li');
       if (c.id === state.current) li.classList.add('active');
+      if (isResolvedRequest(c)) li.classList.add('resolved');
       if (c.unread) li.classList.add('unread');
       const av = el('span', 'avatar');
       setAvatar(av, c);
@@ -766,7 +841,12 @@
       } else if (c.virtual === 'inbox') {
         preview = 'Support requests from participants will appear here';
       }
-      r2.append(el('span', 'preview', preview));
+      const pv = el('span', 'preview');
+      const lm = c.lastMessage;
+      if (lm && lm.userId === state.me.id && !lm.deleted && TICK_CHATS.has(c.type) && !isSystemText(lm.text)) {
+        pv.append(tickNode(lm), document.createTextNode(lm.text.replace(/\n/g, ' ')));
+      } else pv.textContent = preview;
+      r2.append(pv);
       if (c.unread) r2.append(el('span', 'badge', c.unread > 99 ? '99+' : String(c.unread)));
       else if (c.type === 'announce' || c.type === 'public' || (c.type === 'staff' && tab !== 'support')) { const pin = el('span', 'pin'); pin.innerHTML = ICON_PIN; pin.title = 'Pinned'; r2.append(pin); }
       info.append(r1, r2);
@@ -776,18 +856,20 @@
       if (!c.virtual) li.addEventListener('pointerdown', () => { loadMessages(c.id).catch(() => {}); }, { passive: true });
       // Tieni premuto (o tasto destro) per eliminare la chat, come su WhatsApp.
       if (c.type === 'dm' || c.type === 'group') onLongPress(li, () => chatActions(c));
+      else if (isInbox(c)) onLongPress(li, () => staffActions(c));
       ul.append(li);
     }
     if (!shown) {
       const empty = el('li', 'list-empty');
+      if (tab === 'support' && resolvedCount) empty.classList.add('compact');
       empty.append(el('span', 'big', tab === 'unread' ? '🎉' : '🌊'), document.createTextNode(
-        filter ? 'No chats with this name' : tab === 'unread' ? 'All caught up!' : tab === 'support' ? 'No support requests yet' : tab === 'dm' ? 'No private chats yet. Tap “New chat” to message someone.' : 'Nothing here yet'));
-      ul.append(empty);
+        filter ? 'No chats with this name' : tab === 'unread' ? 'All caught up!' : tab === 'support' ? (resolvedCount ? 'No open requests: all resolved!' : 'No support requests yet') : tab === 'dm' ? 'No private chats yet. Tap “New chat” to message someone.' : 'Nothing here yet'));
+      if (tab === 'support' && resolvedCount) ul.prepend(empty); else ul.append(empty);
     }
     // Scheda "Support" degli organizzatori: quante richieste di assistenza da leggere.
     const supportTab = $('#tab-support');
     if (state.me.isAdmin) {
-      const pending = [...state.convs.values()].filter((c) => isInbox(c) && c.unread).length;
+      const pending = [...state.convs.values()].filter((c) => isActiveRequest(c) && c.unread).length;
       supportTab.textContent = '🛟 Support';
       if (pending) supportTab.append(el('span', 'n', String(pending)));
     }
@@ -858,6 +940,7 @@
         if (existing) for (const [k, v] of existing) store.set(k, v);
         state.messages.set(id, store);
         state.hasMore.set(id, data.hasMore);
+        if (data.receipt) state.receipts.set(id, data.receipt);
       }).finally(() => loading.delete(id)));
     }
     return loading.get(id);
@@ -901,6 +984,28 @@
     node.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!node.dataset.held) fn(); });
   }
 
+  // Organizzatori: richiesta allo staff → risolta (archiviata per tutti) / riaperta, profilo.
+  function staffActions(c) {
+    const resolved = isResolvedRequest(c);
+    openModal(plainTitle(c), (body) => {
+      if (resolved && c.resolvedBy) body.append(el('p', 'muted', `✅ Marked as resolved by ${c.resolvedBy}. It reopens by itself if they write again.`));
+      if (c.lastMessage) {
+        body.append(resolved
+          ? menuButton('↩️  Reopen request', () => resolveRequest(c, false))
+          : menuButton('✅  Mark as resolved', () => resolveRequest(c, true)));
+      }
+      if (c.ownerId) body.append(menuButton('👤  View profile', () => showProfile(c.ownerId)));
+    });
+  }
+  async function resolveRequest(c, resolved) {
+    let summary;
+    try { summary = await api('POST', `/api/conversations/${c.id}/resolve`, { resolved }); } catch (err) { return toast(err.message); }
+    closeModal();
+    mergeConvs([summary]);
+    toast(resolved ? '✅ Resolved: moved to the Resolved list for all organisers' : 'Request reopened');
+    if (resolved && state.current === c.id) goBack();
+  }
+
   function chatActions(c) {
     openModal(plainTitle(c), (body) => {
       if (c.type === 'group') body.append(menuButton('🚪  Leave & delete group', () => deleteChat(c), 'danger'));
@@ -936,7 +1041,9 @@
     setAvatar($('#chat-avatar'), conv);
     const sub = {
       public: 'Channel open to all participants', announce: 'Official updates from the organisers', group: 'Group · tap for details', dm: 'Private chat',
-      staff: state.me.isAdmin && conv.title !== '🛟 Staff support' ? 'Support chat · seen by all organisers' : 'Private chat with the organisers',
+      staff: !isInbox(conv) ? 'Private chat with the organisers'
+        : isResolvedRequest(conv) ? `✅ Resolved${conv.resolvedBy ? ' by ' + conv.resolvedBy.split(' ')[0] : ''} · tap for options`
+        : 'Support request · tap to mark as resolved',
     };
     $('#chat-subtitle').textContent = sub[conv.type] || '';
   }
@@ -1058,7 +1165,9 @@
       div.append(qt);
     }
     div.append(el('span', 'text' + (!m.deleted && isJumbo(m.text) ? ' jumbo' : ''), m.deleted ? '🚫 Message deleted' : m.text));
-    div.append(el('span', 'meta', fmtTime(m.createdAt)));
+    const meta = el('span', 'meta', fmtTime(m.createdAt));
+    if (mine && !m.deleted && conv && TICK_CHATS.has(conv.type)) meta.append(tickNode(m));
+    div.append(meta);
     // Reazioni sotto la bolla, come su WhatsApp: toccandole si vede chi ha reagito.
     const reacts = !m.deleted && m.reactions && Object.entries(m.reactions).filter(([, n]) => n > 0);
     if (reacts && reacts.length) {
@@ -1921,6 +2030,7 @@
     const conv = state.convs.get(state.current);
     if (!conv) return;
     if (conv.type === 'dm') return showProfile(conv.otherUserId, conv.title);
+    if (isInbox(conv)) return staffActions(conv);
     if (conv.type !== 'group') return;
     let info;
     try { info = await api('GET', `/api/conversations/${conv.id}`); } catch (err) { return toast(err.message); }

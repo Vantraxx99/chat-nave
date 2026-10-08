@@ -148,6 +148,17 @@ db.exec(`
   );
 `);
 
+// Spunte di consegna: fin dove i messaggi di una chat sono arrivati sul telefono di ognuno.
+if (!db.prepare(`PRAGMA table_info(reads)`).all().some((c) => c.name === 'delivered_id')) {
+  db.exec(`ALTER TABLE reads ADD COLUMN delivered_id INTEGER NOT NULL DEFAULT 0`);
+}
+
+// Richieste allo staff "risolte": archiviate per tutti gli organizzatori fino al prossimo messaggio.
+if (!db.prepare(`PRAGMA table_info(conversations)`).all().some((c) => c.name === 'resolved_id')) {
+  db.exec(`ALTER TABLE conversations ADD COLUMN resolved_id INTEGER NOT NULL DEFAULT 0`);
+  db.exec(`ALTER TABLE conversations ADD COLUMN resolved_by INTEGER`);
+}
+
 // Unico canale di default: gli Annunci degli organizzatori. Per il resto i
 // partecipanti si creano i loro gruppi.
 function ensureDefaultChannels() {

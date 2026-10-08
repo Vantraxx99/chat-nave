@@ -260,6 +260,16 @@ input, textarea { font: inherit; color: inherit; }
 .list-empty { text-align: center; color: var(--muted); padding: 40px 20px; font-size: 15px; }
 .list-empty .big { font-size: 34px; display: block; margin-bottom: 8px; }
 #conv-list { padding-bottom: 12px; }
+/* Scheda Support: sezione delle richieste risolte */
+.list .list-section { justify-content: space-between; margin-top: 10px; padding: 12px 14px; border-radius: 14px; background: var(--bg); font-weight: 800; font-size: 14px; color: var(--muted); }
+.list .list-section .chev { color: var(--link); font-size: 13px; }
+#conv-list li.resolved { opacity: .62; }
+.list-empty.compact { padding: 22px 20px 10px; }
+/* Spunte dei messaggi inviati */
+.ticks { display: inline-flex; vertical-align: -1px; margin-left: 3px; color: var(--bubble-me-meta); }
+.ticks.read { color: #0A84FF; }
+.preview .ticks { margin: 0 3px 0 0; color: var(--muted); vertical-align: -1px; }
+.preview .ticks.read { color: #07A2FF; }
 /* Barra in basso della lista: blu come la testata, con Info e New chat */
 .list-footer {
   flex: none; display: flex; justify-content: space-between; align-items: center; gap: 12px;
@@ -405,11 +415,12 @@ input, textarea { font: inherit; color: inherit; }
 
 /* ---------- Finestre (bottom sheet su telefono) ---------- */
 .modal {
-  position: fixed; inset: 0; background: rgba(7, 23, 40, .55); display: flex; align-items: center; justify-content: center;
+  /* Alta quanto l'area visibile: con la tastiera aperta la finestra sale sopra la tastiera. */
+  position: fixed; top: 0; left: 0; right: 0; height: var(--app-h, 100%); background: rgba(7, 23, 40, .55); display: flex; align-items: center; justify-content: center;
   z-index: 10; padding: 16px; animation: fade .18s ease-out;
 }
 .modal-card {
-  background: var(--panel); width: 100%; max-width: 460px; max-height: 85dvh; border-radius: var(--sheet-radius);
+  background: var(--panel); width: 100%; max-width: 460px; max-height: min(85dvh, calc(var(--app-h, 100dvh) - 16px)); border-radius: var(--sheet-radius);
   display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, .3);
   animation: rise .22s ease-out;
 }
