@@ -461,7 +461,7 @@ input, textarea { font: inherit; color: inherit; }
   #app { position: relative; }
   /* (niente "visibility" animata: con le trasformazioni Safari a volte non ridisegna il
      pannello e resta una schermata vuota/blu. La chat chiusa sta semplicemente fuori schermo.) */
-  #sidebar { width: 100%; border-right: 0; transition: transform .3s cubic-bezier(.2, .8, .2, 1); }
+  #sidebar { width: 100%; border-right: 0; transition: transform .3s cubic-bezier(.2, .8, .2, 1); will-change: transform; }
   #chat {
     position: absolute; inset: 0; z-index: 5; transform: translate3d(105%, 0, 0); pointer-events: none;
     box-shadow: -8px 0 24px rgba(7, 37, 61, .18); will-change: transform;
@@ -830,3 +830,4 @@ button.avatar { border: 0; padding: 0; cursor: pointer; font-family: inherit; }
   align-self: center; margin: 4px 0; padding: 12px 22px; border-radius: 16px; background: var(--lime); color: #07253D;
   font-size: 34px; font-weight: 900; letter-spacing: 8px; font-variant-numeric: tabular-nums; user-select: all; -webkit-user-select: all;
 }
+.chip.count { background: var(--bg); color: var(--muted); }

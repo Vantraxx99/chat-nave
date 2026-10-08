@@ -726,10 +726,14 @@ route('PUT', '/api/me/password', async (req) => {
 });
 
 // Finché nessun organizzatore le apre: chiuse sul sito vero, aperte in locale e nei test.
-const signupsOpen = () => {
-  const row = q.getSetting.get('signups');
+const switchOpen = (key) => {
+  const row = q.getSetting.get(key);
   return row ? row.content === 'open' : process.env.NODE_ENV !== 'production';
 };
+const signupsOpen = () => switchOpen('signups');
+// Chat con lo staff: chiusa per i partecipanti finché gli organizzatori non la aprono (a bordo).
+const supportOpen = () => switchOpen('support');
+const SUPPORT_CLOSED_MSG = 'Staff support opens once we are on board. See you on the ship! 🚢';
 function canSignUpNow(email) {
   return signupsOpen() || ADMIN_EMAILS.has(email) || EARLY_EMAILS.has(email) || !!q.isAllowed.get(email);
 }
@@ -755,6 +759,7 @@ route('GET', '/api/me', async (req) => {
     user: { id: user.id, name: user.name, isAdmin: !!user.is_admin, profile: readProfile(q.userProfile.get(user.id)), hasPassword: !!user.has_password },
     cursor: seq,
     conversations,
+    supportOpen: supportOpen(),
   };
 });
 
@@ -847,6 +852,7 @@ route('POST', '/api/conversations/:id/messages', async (req, res, { id }) => {
   const user = auth(req);
   const conv = getConvOr404(id, user);
   if (conv.type === 'announce' && !user.is_admin) throw new HttpError(403, 'Only organisers can post here');
+  if (conv.type === 'staff' && !user.is_admin && !supportOpen()) throw new HttpError(403, SUPPORT_CLOSED_MSG);
   if (!msgLimit(user.id)) throw new HttpError(429, 'You are sending messages too fast');
   const body = await readJson(req);
   const text = String(body.text || '').replace(/\r\n/g, '\n').trim();
@@ -865,6 +871,7 @@ route('POST', '/api/conversations/:id/messages', async (req, res, { id }) => {
 // "Contact staff": apre (o crea) la chat di assistenza di chi la chiede.
 route('POST', '/api/staff', async (req) => {
   const user = auth(req);
+  if (!user.is_admin && !supportOpen()) throw new HttpError(403, SUPPORT_CLOSED_MSG);
   const key = 'staff:' + user.id;
   let conv = q.dmByKey.get(key);
   if (!conv) {
@@ -943,13 +950,18 @@ route('POST', '/api/dm', async (req) => {
   return { id: conv.id };
 });
 
+// Gruppi piccoli, come tra amici: al massimo 20 persone, chi lo crea compreso.
+const GROUP_MAX = 20;
+const groupFull = () => new HttpError(400, `Groups can have up to ${GROUP_MAX} people`);
+
 route('POST', '/api/groups', async (req) => {
   const user = auth(req);
   if (!createLimit(user.id)) throw new HttpError(429, 'Too many groups created, please try again shortly');
   const body = await readJson(req);
   const name = cleanName(body.name);
   if (name.length < 2) throw new HttpError(400, 'Give the group a name');
-  const ids = Array.isArray(body.memberIds) ? body.memberIds.map(Number).filter(Boolean).slice(0, 256) : [];
+  const ids = Array.isArray(body.memberIds) ? [...new Set(body.memberIds.map(Number).filter((x) => x && x !== user.id))] : [];
+  if (ids.length + 1 > GROUP_MAX) throw groupFull();
   const conv = createGroupLike('group', name, user.id, ids);
   postMessage(conv, user.id, `👋 ${user.name} created the group "${name}"`);
   return { id: conv.id };
@@ -960,7 +972,12 @@ route('POST', '/api/conversations/:id/members', async (req, res, { id }) => {
   const conv = getConvOr404(id, user);
   if (conv.type !== 'group') throw new HttpError(400, 'People can only be added to groups');
   const body = await readJson(req);
-  const ids = Array.isArray(body.userIds) ? body.userIds.map(Number).filter(Boolean).slice(0, 256) : [];
+  const ids = Array.isArray(body.userIds) ? [...new Set(body.userIds.map(Number).filter(Boolean))].filter((uid) => !q.isMember.get(conv.id, uid)) : [];
+  const now = q.memberIds.all(conv.id).length;
+  if (now + ids.length > GROUP_MAX) {
+    throw new HttpError(400, now >= GROUP_MAX ? `This group is full: groups can have up to ${GROUP_MAX} people`
+      : `Groups can have up to ${GROUP_MAX} people: you can add ${GROUP_MAX - now} more`);
+  }
   const added = [];
   for (const uid of ids) {
     const u = q.userById.get(uid);
@@ -1199,6 +1216,18 @@ route('PUT', '/api/admin/signups', async (req) => {
   const { open } = await readJson(req);
   q.setSetting.run('signups', open ? 'open' : 'closed', user.id, Date.now());
   return { open: signupsOpen() };
+});
+// Apre o chiude la chat con lo staff per i partecipanti.
+route('GET', '/api/admin/support', async (req) => {
+  requireAdmin(auth(req));
+  return { open: supportOpen() };
+});
+route('PUT', '/api/admin/support', async (req) => {
+  const user = auth(req);
+  requireAdmin(user);
+  const { open } = await readJson(req);
+  q.setSetting.run('support', open ? 'open' : 'closed', user.id, Date.now());
+  return { open: supportOpen() };
 });
 
 route('GET', '/api/admin/stats', async (req) => {

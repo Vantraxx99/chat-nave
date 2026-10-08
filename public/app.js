@@ -57,14 +57,18 @@
   if (vv) {
     const typing = () => { const a = document.activeElement; return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'); };
     const fit = () => {
-      document.documentElement.style.setProperty('--app-h', vv.height + 'px');
+      // Senza nessun campo attivo la tastiera è chiusa: altezza piena anche se iOS
+      // non ha ancora aggiornato l'area visibile (niente spazio vuoto in basso).
+      const h = typing() ? vv.height : Math.max(vv.height, window.innerHeight);
+      document.documentElement.style.setProperty('--app-h', h + 'px');
       // Con la tastiera aperta il margine per la barretta in basso dell'iPhone non serve.
       document.documentElement.classList.toggle('kb-open', typing() && vv.height < (screen.height || 9999) * 0.75);
       if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
     };
     vv.addEventListener('resize', fit);
     vv.addEventListener('scroll', fit);
-    document.addEventListener('focusout', () => setTimeout(fit, 50));
+    document.addEventListener('focusout', () => { for (const t of [50, 300, 700]) setTimeout(fit, t); });
+    window.fitViewport = fit;
     fit();
   }
   document.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
@@ -83,9 +87,13 @@
     if (!v || !myVersion || myVersion.startsWith('__') || v === myVersion || checkVersion.pending) return;
     checkVersion.pending = true;
     const tryReload = () => {
-      const busy = ($('#msg-input') && $('#msg-input').value.trim()) || !$('#modal').classList.contains('hidden');
-      if (busy) return setTimeout(tryReload, 5000);
+      // Mai dentro una chat: la pagina "dietro" (nella cronologia) sarebbe quella vecchia e
+      // il gesto indietro di iOS ricaricherebbe tutto (schermo bianco). Si aggiorna dalla lista.
+      const busy = ($('#msg-input') && $('#msg-input').value.trim()) || !$('#modal').classList.contains('hidden')
+        || (state.current && isPhone());
+      if (busy) return setTimeout(tryReload, 3000);
       try { sessionStorage.setItem('gr-skip-splash', '1'); } catch {}
+      try { history.replaceState(null, '', location.pathname); } catch {}
       location.reload();
     };
     tryReload();
@@ -326,6 +334,7 @@
       return;
     }
     state.me = data.user;
+    state.supportOpen = data.supportOpen !== false;
     state.cursor = data.cursor;
     state.convs.clear();
     for (const c of data.conversations) { c.lastSeenId = c.lastMessage ? c.lastMessage.id : 0; state.convs.set(c.id, c); if (c.receipt) state.receipts.set(c.id, c.receipt); }
@@ -336,7 +345,10 @@
     renderConvList();
     refreshPushCard();
     syncPush();
+    // Si parte sempre dalla lista (anche dopo un aggiornamento o da una notifica): la chat
+    // si apre sopra, così "indietro" torna alla lista e non esce dall'app.
     const fromHash = Number(location.hash.slice(1));
+    try { history.replaceState(null, '', location.pathname); } catch {}
     if (fromHash && state.convs.has(fromHash)) openConv(fromHash);
     poll();
     // Chi era entrato prima delle password ne sceglie una subito.
@@ -900,7 +912,7 @@
         const who = lm.userId === state.me.id ? 'You: ' : c.type !== 'dm' && !isSystemText(lm.text) ? lm.userName.split(' ')[0] + ': ' : '';
         preview = lm.deleted ? '🚫 Message deleted' : who + lm.text.replace(/\n/g, ' ');
       } else if (c.virtual === 'new') {
-        preview = 'Questions? Write to the organisers';
+        preview = supportLocked() ? 'Opens once we are on board 🚢' : 'Questions? Write to the organisers';
       } else if (c.virtual === 'inbox') {
         preview = 'Support requests from participants will appear here';
       }
@@ -957,11 +969,16 @@
       if (history.state && history.state.chat) history.replaceState({ chat: true }, '', '#' + id);
       else history.pushState({ chat: true }, '', '#' + id);
     } catch {}
-    document.body.classList.add('in-chat');
+    // Se i messaggi sono già sul telefono la chat si prepara prima e poi entra:
+    // l'animazione parte pulita, senza il lavoro di disegno nel mezzo.
+    const cached = state.messages.has(id);
+    if (!cached) document.body.classList.add('in-chat');
     $('#chat-empty').classList.add('hidden');
     $('#chat-view').classList.remove('hidden');
     renderChatHeader();
-    const canWrite = conv.type !== 'announce' || state.me.isAdmin;
+    const staffLocked = conv.type === 'staff' && supportLocked();
+    const canWrite = (conv.type !== 'announce' || state.me.isAdmin) && !staffLocked;
+    $('#readonly-note').textContent = staffLocked ? '🛟 ' + SUPPORT_CLOSED : '📢 Only organisers can post here';
     $('#composer').classList.toggle('hidden', !canWrite);
     $('#readonly-note').classList.toggle('hidden', canWrite);
     conv.unread = 0;
@@ -985,6 +1002,7 @@
     missed = 0;
     updateToBottom();
     syncComposer();
+    if (cached) requestAnimationFrame(() => { if (state.current === id) document.body.classList.add('in-chat'); });
     markRead();
     if (window.matchMedia('(min-width: 761px)').matches) $('#msg-input').focus();
   }
@@ -1011,8 +1029,12 @@
 
   function closeConv() {
     state.current = null;
+    // Chiude la tastiera: un campo rimasto attivo nella chat nascosta la lascerebbe "aperta".
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     document.body.classList.remove('in-chat');
-    renderConvList();
+    if (window.fitViewport) window.fitViewport();
+    // Su telefono la lista si ridisegna a animazione finita: l'uscita resta fluida.
+    if (isPhone()) setTimeout(() => { if (!state.current) renderConvList(); }, 330); else renderConvList();
     // Su telefono la chat esce scorrendo: la svuotiamo solo dopo l'animazione.
     const hide = () => {
       if (state.current) return;
@@ -1592,7 +1614,7 @@
   }
 
   // Ricerca utenti con lista cliccabile. multi = selezione multipla.
-  function userPicker(body, { multi = false, onPick, exclude = new Set() }) {
+  function userPicker(body, { multi = false, onPick, exclude = new Set(), max = Infinity }) {
     const search = el('input');
     search.type = 'search';
     search.placeholder = 'Search participants by name';
@@ -1619,6 +1641,7 @@
             li.append(check);
             if (selected.has(u.id)) li.classList.add('checked');
             li.addEventListener('click', () => {
+              if (!selected.has(u.id) && selected.size >= max) return toast(`Groups can have up to ${GROUP_MAX} people`);
               if (selected.has(u.id)) selected.delete(u.id); else selected.set(u.id, u.name);
               li.classList.toggle('checked'); check.textContent = selected.has(u.id) ? '✔' : '';
               renderChips();
@@ -1630,6 +1653,7 @@
     }
     function renderChips() {
       chips.textContent = '';
+      if (multi && max !== Infinity && selected.size) chips.append(el('span', 'chip count', `${selected.size}/${max}`));
       for (const name of selected.values()) chips.append(el('span', 'chip', name));
     }
     search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 250); });
@@ -1640,7 +1664,10 @@
   }
 
   // ------------------------------------------------- Contatta lo staff
+  const SUPPORT_CLOSED = 'Staff support opens once we are on board. See you on the ship! 🚢';
+  const supportLocked = () => !state.supportOpen && !(state.me && state.me.isAdmin);
   async function contactStaff() {
+    if (supportLocked()) { closeModal(); return toast('🛟 ' + SUPPORT_CLOSED); }
     try {
       const { id } = await api('POST', '/api/staff');
       closeModal();
@@ -1870,6 +1897,7 @@
     });
   });
 
+  const GROUP_MAX = 20; // persone per gruppo, creatore compreso (lo controlla anche il server)
   function newGroup() {
     openModal('New group', (body) => {
       const name = el('input');
@@ -1877,7 +1905,7 @@
       name.placeholder = 'Group name (e.g. Cabin 512, Mykonos trip…)';
       name.maxLength = 60;
       body.append(name);
-      const picker = userPicker(body, { multi: true });
+      const picker = userPicker(body, { multi: true, max: GROUP_MAX - 1 });
       const create = el('button', 'btn', 'Create group');
       create.addEventListener('click', async () => {
         try {
@@ -2126,8 +2154,10 @@
   });
 
   function addMembers(conv, exclude) {
+    const left = GROUP_MAX - exclude.size;
+    if (left <= 0) return toast(`This group is full: groups can have up to ${GROUP_MAX} people`);
     openModal('Add to ' + conv.title, (body) => {
-      const picker = userPicker(body, { multi: true, exclude });
+      const picker = userPicker(body, { multi: true, exclude, max: left });
       const btn = el('button', 'btn', 'Add');
       btn.addEventListener('click', async () => {
         try {
@@ -2161,21 +2191,33 @@
     });
   }
 
-  // Organizzatori: aprire o chiudere le iscrizioni. Chi ha già un account entra sempre.
-  function signupsDialog() {
-    openModal('Sign-ups', async (body) => {
+  // Organizzatori: interruttori aperto/chiuso (iscrizioni nuove, chat con lo staff).
+  function switchDialog({ title, path, onText, offText, openLabel, closeLabel, confirmText }) {
+    openModal(title, async (body) => {
       let open;
-      try { open = (await api('GET', '/api/admin/signups')).open; } catch (e) { body.append(el('p', null, e.message)); return; }
-      body.append(el('p', null, open
-        ? '🟢 Open: everyone on the participant list can create an account.'
-        : '🔴 Closed: only organisers, the early-access emails and the emails you allowed can create an account. People who already have one can still sign in.'));
-      body.append(menuButton(open ? '🔒  Close sign-ups' : '🔓  Open sign-ups to everyone', async () => {
-        if (!open && !await askConfirm('Open sign-ups? Everyone on the participant list will be able to create an account.', 'Open')) return;
-        try { await api('PUT', '/api/admin/signups', { open: !open }); toast(open ? '🔒 Sign-ups closed' : '🔓 Sign-ups open'); closeModal(); }
+      try { open = (await api('GET', path)).open; } catch (e) { body.append(el('p', null, e.message)); return; }
+      body.append(el('p', null, open ? '🟢 ' + onText : '🔴 ' + offText));
+      body.append(menuButton(open ? '🔒  ' + closeLabel : '🔓  ' + openLabel, async () => {
+        if (!open && !await askConfirm(confirmText, 'Open')) return;
+        try { await api('PUT', path, { open: !open }); toast(open ? '🔒 Closed' : '🔓 Open'); closeModal(); }
         catch (e) { toast(e.message); }
       }, open ? '' : 'primary'));
     });
   }
+  const signupsDialog = () => switchDialog({
+    title: 'Sign-ups', path: '/api/admin/signups',
+    onText: 'Open: everyone on the participant list can create an account.',
+    offText: 'Closed: only organisers, the early-access emails and the emails you allowed can create an account. People who already have one can still sign in.',
+    openLabel: 'Open sign-ups to everyone', closeLabel: 'Close sign-ups',
+    confirmText: 'Open sign-ups? Everyone on the participant list will be able to create an account.',
+  });
+  const supportDialog = () => switchDialog({
+    title: 'Staff support', path: '/api/admin/support',
+    onText: 'Open: participants can write to the organisers.',
+    offText: 'Closed: participants see "Staff support opens once we are on board" and cannot write. Organisers are not affected.',
+    openLabel: 'Open staff support', closeLabel: 'Close staff support',
+    confirmText: 'Open staff support? Participants will be able to write to the organisers (they see it next time they open the app).',
+  });
 
   $('#btn-menu').addEventListener('click', () => {
     openModal('Menu', (body) => {
@@ -2183,6 +2225,7 @@
       if (state.me.isAdmin) {
         body.append(menuButton('✉️  Allow an email (organisers)', allowEmailDialog));
         body.append(menuButton('🔐  Sign-ups for new participants', signupsDialog));
+        body.append(menuButton('🛟  Staff support on / off', supportDialog));
         body.append(menuButton('📊  Stats', async () => {
           try {
             const s = await api('GET', '/api/admin/stats');
