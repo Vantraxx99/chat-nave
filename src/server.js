@@ -154,6 +154,12 @@ const q = {
   stats: db.prepare(`SELECT (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM messages) AS messages, (SELECT COUNT(*) FROM conversations) AS conversations`),
 };
 
+// Chi è già registrato e viene aggiunto agli organizzatori diventa admin subito (senza dover rientrare).
+for (const email of ADMIN_EMAILS) {
+  const u = q.userByEmail.get(email);
+  if (u && !u.is_admin) q.makeAdmin.run(u.id);
+}
+
 function publicMsg(m) {
   return {
     id: m.id, conversationId: m.conversation_id, userId: m.user_id, userName: m.user_name,
