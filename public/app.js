@@ -361,20 +361,45 @@
   }
 
   // -------------------------------------------------------- Long-polling
+  // Il banner "No connection" compare solo se il problema dura: un singolo errore
+  // (telefono bloccato, cambio di rete, connessione chiusa dalla rete di bordo) si
+  // ripara da solo in un attimo e non deve allarmare nessuno.
+  let pollWait = 25; // secondi che il server tiene aperta la richiesta
+  let wakePoll = null; // interrompe la pausa tra un tentativo e l'altro
+  let failingSince = 0;
+  let offlineTimer = null;
+  function pollOk() {
+    failingSince = 0;
+    clearTimeout(offlineTimer); offlineTimer = null;
+    $('#offline').classList.add('hidden');
+  }
+  function pollFailed() {
+    if (!failingSince) failingSince = Date.now();
+    if (!offlineTimer) offlineTimer = setTimeout(() => { if (failingSince) $('#offline').classList.remove('hidden'); }, 6000);
+  }
+  function pause(ms) {
+    return new Promise((r) => { const t = setTimeout(r, ms); wakePoll = () => { clearTimeout(t); r(); }; }).finally(() => { wakePoll = null; });
+  }
   async function poll() {
     let delay = 0;
     while (state.me) {
+      const ctrl = new AbortController();
+      state.pollCtrl = ctrl;
+      // Una richiesta che non risponde più (connessione morta in silenzio) si chiude da sola.
+      const watchdog = setTimeout(() => { ctrl.stale = true; ctrl.abort(); }, (pollWait + 15) * 1000);
+      const started = Date.now();
       try {
-        state.pollCtrl = new AbortController();
+        // Dopo un errore la richiesta torna subito: così il banner sparisce appena la rete c'è.
         const visible = document.visibilityState === 'visible' ? 1 : 0;
-        const data = demo ? await demo.poll(state.cursor) : await fetch(`/api/poll?since=${state.cursor}&v=${visible}`, { signal: state.pollCtrl.signal, credentials: 'same-origin' })
+        const data = demo ? await demo.poll(state.cursor) : await fetch(`/api/poll?since=${state.cursor}&v=${visible}&t=${failingSince ? 1 : pollWait}`, { signal: ctrl.signal, credentials: 'same-origin', cache: 'no-store' })
           .then(async (r) => {
             checkVersion(r);
             if (r.status === 401 || r.status === 403) { const e = new Error('auth'); e.status = r.status; throw e; }
             if (!r.ok) throw new Error('http ' + r.status);
             return r.json();
           });
-        $('#offline').classList.add('hidden');
+        clearTimeout(watchdog);
+        pollOk();
         delay = 0;
         state.cursor = Math.max(state.cursor, data.cursor);
         if (data.receipts && data.receipts.length) applyReceipts(data.receipts);
@@ -387,11 +412,16 @@
           await new Promise((r) => setTimeout(r, 1000));
         }
       } catch (err) {
+        clearTimeout(watchdog);
         if (err.status === 401 || err.status === 403) { state.me = null; return initLogin(); }
-        if (err.name === 'AbortError') continue; // riavvio voluto (app in primo piano / in background)
-        $('#offline').classList.remove('hidden');
-        delay = Math.min(delay ? delay * 2 : 1000, 15000);
-        await new Promise((r) => setTimeout(r, delay + Math.random() * 1000));
+        if (err.name === 'AbortError' && !ctrl.stale) continue; // riavvio voluto (app in primo piano / in background)
+        // Richiesta caduta dopo essere rimasta aperta un po': la rete chiude le connessioni
+        // ferme. Da qui in poi attese più corte, che la rete lascia passare.
+        if (document.visibilityState === 'visible' && Date.now() - started > 8000 && pollWait > 10) pollWait = 10;
+        pollFailed();
+        // Primo tentativo subito, poi sempre più distanziati (massimo 10 s).
+        delay = delay ? Math.min(delay * 2, 10000) : 300;
+        await pause(delay + Math.random() * 500);
       }
     }
   }
@@ -400,8 +430,11 @@
   // così il server sa se mandare la notifica push o no.
   document.addEventListener('visibilitychange', () => {
     if (state.me && state.pollCtrl && !demo) state.pollCtrl.abort();
+    if (document.visibilityState === 'visible' && wakePoll) wakePoll();
     if (document.visibilityState === 'visible' && !demo) fetch('/healthz', { cache: 'no-store' }).then(checkVersion).catch(() => {});
   });
+  // Rete tornata: riprova subito invece di aspettare la pausa.
+  window.addEventListener('online', () => { if (wakePoll) wakePoll(); });
 
   // ----------------------------------------------------------- Spunte
   // ✓ inviato · ✓✓ consegnato (arrivato sul telefono) · ✓✓ blu letto. Il server manda,

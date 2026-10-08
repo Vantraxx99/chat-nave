@@ -511,6 +511,7 @@ function sendPush(conv, msg) {
       : conv.name,
     body: conv.type === 'dm' || conv.type === 'announce' ? text : `${first}: ${text}`,
     convId: conv.id,
+    msgId: msg.id, // il telefono conferma l'arrivo (seconda spunta) anche ad app chiusa
     tag: 'conv-' + conv.id,
   };
   const recipients = conv.type === 'announce' ? null : recipientsOf(conv);
@@ -1028,9 +1029,23 @@ route('GET', '/api/messages/:id/reactions', async (req, res, { id }) => {
   return { reactions: q.reactionUsers.all(msg.id).map((r) => ({ emoji: r.emoji, userId: r.id, name: r.name })) };
 });
 
+// La notifica push è arrivata sul telefono (la segnala il service worker): seconda spunta.
+route('POST', '/api/delivered', async (req) => {
+  const user = auth(req);
+  const { messageId } = await readJson(req);
+  const msg = q.msgById.get(Number(messageId));
+  if (!msg) throw new HttpError(404, 'Message not found');
+  getConvOr404(msg.conversation_id, user);
+  noteDelivered(user.id, [msg]);
+  return { ok: true };
+});
+
 route('GET', '/api/poll', async (req, res, params, url) => {
   const user = auth(req);
   const since = Math.max(0, Number(url.searchParams.get('since')) || 0);
+  // Il telefono può chiedere un'attesa più corta: alcune reti (es. Wi-Fi di bordo)
+  // chiudono le connessioni rimaste ferme troppo a lungo.
+  const waitMs = Math.min(POLL_TIMEOUT_MS, Math.max(1_000, (Number(url.searchParams.get('t')) || 0) * 1000 || POLL_TIMEOUT_MS));
   const rows = q.since.all(since, user.id, user.is_admin, user.id);
   const reply = (list) => {
     noteDelivered(user.id, list);
@@ -1059,7 +1074,7 @@ route('GET', '/api/poll', async (req, res, params, url) => {
         resolve();
       },
     };
-    w.timer = setTimeout(() => w.respond([]), POLL_TIMEOUT_MS);
+    w.timer = setTimeout(() => w.respond([]), waitMs);
     res.on('close', () => { if (waiters.delete(w)) clearTimeout(w.timer); });
     waiters.add(w);
   });

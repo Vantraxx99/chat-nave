@@ -9,7 +9,14 @@ self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch {}
   const title = data.title || 'Global Reunion';
-  event.waitUntil(self.registration.showNotification(title, {
+  // Il messaggio è arrivato sul telefono: il mittente vede la doppia spunta.
+  const delivered = data.msgId ? fetch('/api/delivered', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messageId: data.msgId }),
+  }).catch(() => {}) : null;
+  event.waitUntil(Promise.all([delivered, self.registration.showNotification(title, {
     body: data.body || 'New message',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
@@ -17,7 +24,7 @@ self.addEventListener('push', (event) => {
     renotify: true,
     vibrate: [120, 60, 120],
     data: { convId: data.convId || null },
-  }));
+  })]));
 });
 
 self.addEventListener('notificationclick', (event) => {
