@@ -745,7 +745,7 @@ const UNLOCK_AT = (() => {
   return process.env.NODE_ENV === 'production' ? Date.parse('2026-10-20T16:00:00+02:00') : 0;
 })();
 const isLocked = (user) => !user.is_admin && Date.now() < UNLOCK_AT;
-const LOCKED_MSG = 'The chat unlocks on 20 October at 16:00 🚢';
+const LOCKED_MSG = 'The chat unlocks on 20 October 🚢';
 function checkUnlocked(user) { if (isLocked(user)) throw new HttpError(403, LOCKED_MSG); }
 function canSignUpNow(email) {
   return signupsOpen() || ADMIN_EMAILS.has(email) || EARLY_EMAILS.has(email) || !!q.isAllowed.get(email);

@@ -331,7 +331,7 @@
     $('#wait-name').textContent = state.me.name.split(' ')[0];
     const when = new Date(data.unlockAt);
     const fmt = (o) => when.toLocaleString('en-GB', { timeZone: 'Europe/Rome', ...o });
-    $('#wait-date').textContent = `🚢 ${fmt({ weekday: 'long', day: 'numeric', month: 'long' })} · ${fmt({ hour: '2-digit', minute: '2-digit' })} (Italy time)`;
+    $('#wait-date').textContent = `🚢 ${fmt({ weekday: 'long', day: 'numeric', month: 'long' })}`;
     const pad = (n) => String(n).padStart(2, '0');
     const tick = () => {
       const left = data.unlockAt - (Date.now() + skew);
