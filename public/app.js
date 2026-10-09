@@ -528,6 +528,12 @@
       if (store) store.set(m.id, m);
 
       const isNewest = !conv.lastMessage || m.id >= conv.lastMessage.id;
+      if (vanishes(m, conv)) {
+        // Annuncio cancellato: sparisce del tutto, anche dall'anteprima nella lista.
+        if (isNewest) { const rest = store ? sortedMsgs(conv.id) : []; conv.lastMessage = rest[rest.length - 1] || null; listChanged = true; }
+        if (state.current === m.conversationId) renderAllMessages(false);
+        continue;
+      }
       if (isNewest) { conv.lastMessage = m; listChanged = true; }
       if (!known && !m.deleted && m.userId !== state.me.id && state.current !== m.conversationId
           && (!conv.lastSeenId || m.id > conv.lastSeenId)) {
@@ -1187,8 +1193,11 @@
   }
   document.addEventListener('visibilitychange', () => { if (!document.hidden) markRead(); });
 
+  // Negli Annunci un messaggio cancellato non lascia traccia ("Message deleted" solo nelle chat).
+  const vanishes = (m, conv) => m.deleted && conv && conv.type === 'announce';
   function sortedMsgs(id) {
-    return [...(state.messages.get(id) || new Map()).values()].sort((a, b) => a.id - b.id);
+    const conv = state.convs.get(id);
+    return [...(state.messages.get(id) || new Map()).values()].filter((m) => !vanishes(m, conv)).sort((a, b) => a.id - b.id);
   }
 
   function renderAllMessages(scrollBottom) {
@@ -1653,10 +1662,12 @@
     const chips = el('div', 'chips');
     let timer = null;
     async function run() {
-      // Senza testo mostra i primi partecipanti in ordine alfabetico.
+      // Si cerca per nome: con centinaia di iscritti l'elenco completo non serve.
       const term = search.value.trim();
+      if (!term) { ul.textContent = ''; ul.dataset.empty = 'Type a name to search'; return; }
       try {
         const { users } = await api('GET', '/api/users?q=' + encodeURIComponent(term));
+        if (search.value.trim() !== term) return; // nel frattempo è cambiata la ricerca
         ul.textContent = '';
         ul.dataset.empty = 'No participants found';
         for (const u of users) {

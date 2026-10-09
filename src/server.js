@@ -87,7 +87,7 @@ const q = {
   insertConv: db.prepare(`INSERT INTO conversations (type, name, dm_key, created_by, created_at) VALUES (?, ?, ?, ?, ?)`),
   visibleConvs: db.prepare(`
     SELECT c.id, c.type, c.name, c.dm_key, c.resolved_id, (SELECT name FROM users WHERE id = c.resolved_by) AS resolved_by_name,
-      (SELECT MAX(id) FROM messages WHERE conversation_id = c.id) AS last_id,
+      (SELECT MAX(id) FROM messages WHERE conversation_id = c.id AND NOT (c.type = 'announce' AND deleted = 1)) AS last_id,
       COALESCE((SELECT last_read_id FROM reads WHERE user_id = ? AND conversation_id = c.id), 0) AS last_read_id,
       COALESCE((SELECT cleared_id FROM cleared WHERE user_id = ? AND conversation_id = c.id), 0) AS cleared_id
     FROM conversations c
