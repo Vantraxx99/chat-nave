@@ -66,7 +66,7 @@ const q = {
   deleteCodes: db.prepare(`DELETE FROM codes WHERE email = ?`),
   deleteCode: db.prepare(`DELETE FROM codes WHERE email = ? AND kind = ?`),
   insertUser: db.prepare(`INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)`),
-  sessionUser: db.prepare(`SELECT u.id, u.name, u.is_admin, u.banned, u.password_hash IS NOT NULL AS has_password FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`),
+  sessionUser: db.prepare(`SELECT u.id, u.name, u.email, u.is_admin, u.banned, u.password_hash IS NOT NULL AS has_password FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`),
   setPassword: db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`),
   deleteOtherSessions: db.prepare(`DELETE FROM sessions WHERE user_id = ? AND token != ?`),
   insertSession: db.prepare(`INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)`),
@@ -164,6 +164,7 @@ const q = {
     JOIN conversations c ON c.id = m.conversation_id
     WHERE m.seq > ? AND c.type IN ('public','announce')
     ORDER BY m.seq LIMIT 300`),
+  touchUser: db.prepare(`UPDATE users SET last_seen = ? WHERE id = ?`),
   stats: db.prepare(`SELECT (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM messages) AS messages, (SELECT COUNT(*) FROM conversations) AS conversations`),
 };
 
@@ -457,11 +458,23 @@ function sessionCookie(token, maxAge) {
   return `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${SECURE_COOKIE ? '; Secure' : ''}`;
 }
 
+// Ultima attività di ogni persona: in memoria al minuto, sul database ogni 5 minuti
+// (così migliaia di persone collegate non fanno migliaia di scritture).
+const lastSeen = new Map();
+function touch(userId) {
+  const now = Date.now();
+  const prev = lastSeen.get(userId) || 0;
+  if (now - prev < 60_000) return;
+  lastSeen.set(userId, now);
+  if (now - prev > 300_000) q.touchUser.run(now, userId);
+}
+
 function auth(req) {
   const token = parseCookies(req)[COOKIE];
   const user = token && q.sessionUser.get(token);
   if (!user) throw new HttpError(401, 'Not signed in');
   if (user.banned) throw new HttpError(403, 'Account suspended');
+  touch(user.id);
   return user;
 }
 
@@ -773,6 +786,7 @@ route('GET', '/api/me', async (req) => {
     cursor: seq,
     conversations,
     supportOpen: supportOpen(),
+    canSeeStats: canSeeStats(user),
     unlockAt: isLocked(user) ? UNLOCK_AT : 0, // > 0: conto alla rovescia al posto della chat
     now: Date.now(),
   };
@@ -1274,6 +1288,67 @@ route('PUT', '/api/admin/support', async (req) => {
   const { open } = await readJson(req);
   q.setSetting.run('support', open ? 'open' : 'closed', user.id, Date.now());
   return { open: supportOpen() };
+});
+
+// Statistiche live: solo per chi è in STATS_EMAILS (di default Filippo). Calcolate al massimo
+// una volta ogni 10 secondi e condivise: aprire la pagina da più telefoni non pesa sul server.
+const STATS_EMAILS = new Set(String(process.env.STATS_EMAILS || 'roca.filippo1999@gmail.com').split(',').map(normalizeEmail).filter(Boolean));
+const canSeeStats = (user) => !!user.is_admin && STATS_EMAILS.has(user.email);
+const sq = {
+  counts: db.prepare(`SELECT
+      (SELECT COUNT(*) FROM users WHERE is_admin = 0) AS participants,
+      (SELECT COUNT(*) FROM users WHERE is_admin = 1) AS admins,
+      (SELECT COUNT(*) FROM users WHERE is_admin = 0 AND created_at > ?) AS today,
+      (SELECT COUNT(*) FROM users WHERE is_admin = 0 AND created_at > ?) AS lastHour,
+      (SELECT COUNT(*) FROM users WHERE last_seen > ?) AS active24h,
+      (SELECT COUNT(*) FROM users WHERE last_seen > ?) AS active1h,
+      (SELECT COUNT(DISTINCT user_id) FROM push_subscriptions) AS notifications,
+      (SELECT COUNT(*) FROM users WHERE profile IS NOT NULL AND profile NOT IN ('', '{}')) AS profiles,
+      (SELECT COUNT(*) FROM messages WHERE deleted = 0) AS messages,
+      (SELECT COUNT(*) FROM messages WHERE deleted = 0 AND created_at > ?) AS messagesToday,
+      (SELECT COUNT(*) FROM messages WHERE deleted = 0 AND created_at > ?) AS messagesHour,
+      (SELECT COUNT(*) FROM conversations WHERE type = 'group') AS groups,
+      (SELECT COUNT(*) FROM conversations WHERE type = 'dm') AS dms,
+      (SELECT COUNT(*) FROM conversations WHERE type = 'staff') AS support`),
+  signupTimes: db.prepare(`SELECT created_at FROM users WHERE is_admin = 0 AND created_at > ?`),
+  recent: db.prepare(`SELECT name, created_at FROM users WHERE is_admin = 0 ORDER BY id DESC LIMIT 8`),
+};
+let statsCache = null;
+const romeDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' });
+function buildStats() {
+  const now = Date.now();
+  // Mezzanotte di oggi, ora italiana
+  const todayKey = romeDay.format(now);
+  let midnight = now - (now % 3600_000);
+  while (romeDay.format(midnight - 1) === todayKey) midnight -= 3600_000;
+  const c = sq.counts.get(midnight, now - 3600_000, now - 86400_000, now - 3600_000, midnight, now - 3600_000);
+  // Iscrizioni degli ultimi 14 giorni, giorno per giorno
+  const days = new Map();
+  for (let i = 13; i >= 0; i--) days.set(romeDay.format(now - i * 86400_000), 0);
+  for (const r of sq.signupTimes.all(now - 14 * 86400_000)) {
+    const k = romeDay.format(r.created_at);
+    if (days.has(k)) days.set(k, days.get(k) + 1);
+  }
+  const online = new Set(), foreground = new Set();
+  for (const w of waiters) { online.add(w.userId); if (w.visible) foreground.add(w.userId); }
+  let active10m = 0;
+  for (const t of lastSeen.values()) if (now - t < 600_000) active10m++;
+  return {
+    at: now,
+    users: { participants: c.participants, admins: c.admins, today: c.today, lastHour: c.lastHour, list: PARTICIPANT_HASHES.size, notifications: c.notifications, profiles: c.profiles },
+    activity: { online: online.size, foreground: foreground.size, active10m, active1h: c.active1h, active24h: c.active24h },
+    chat: { messages: c.messages, today: c.messagesToday, lastHour: c.messagesHour, groups: c.groups, dms: c.dms, support: c.support },
+    signupsByDay: [...days].map(([day, n]) => ({ day, n })),
+    recent: sq.recent.all().map((r) => ({ name: r.name, at: r.created_at })),
+    state: { signupsOpen: signupsOpen(), supportOpen: supportOpen(), unlockAt: UNLOCK_AT > now ? UNLOCK_AT : 0 },
+    server: { uptimeMin: Math.round(process.uptime() / 60), memoryMb: Math.round(process.memoryUsage().rss / 1048576), connections: waiters.size },
+  };
+}
+route('GET', '/api/admin/live-stats', async (req) => {
+  const user = auth(req);
+  if (!canSeeStats(user)) throw new HttpError(403, 'Not available');
+  if (!statsCache || Date.now() - statsCache.at > 10_000) statsCache = buildStats();
+  return statsCache;
 });
 
 route('GET', '/api/admin/stats', async (req) => {

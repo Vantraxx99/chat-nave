@@ -159,6 +159,11 @@ if (!db.prepare(`PRAGMA table_info(conversations)`).all().some((c) => c.name ===
   db.exec(`ALTER TABLE conversations ADD COLUMN resolved_by INTEGER`);
 }
 
+// Ultima attività (aggiornata al massimo ogni 5 minuti per persona): per le statistiche live.
+if (!db.prepare(`PRAGMA table_info(users)`).all().some((c) => c.name === 'last_seen')) {
+  db.exec(`ALTER TABLE users ADD COLUMN last_seen INTEGER`);
+}
+
 // Unico canale di default: gli Annunci degli organizzatori. Per il resto i
 // partecipanti si creano i loro gruppi.
 function ensureDefaultChannels() {

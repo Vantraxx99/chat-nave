@@ -389,6 +389,7 @@
     }
     state.me = data.user;
     state.supportOpen = data.supportOpen !== false;
+    state.canSeeStats = !!data.canSeeStats;
     // Chat non ancora sbloccata: iscritti sì, ma vedono il conto alla rovescia.
     if (data.unlockAt) return showWait(data);
     state.cursor = data.cursor;
@@ -2315,6 +2316,85 @@
     confirmText: 'Open staff support? Participants will be able to write to the organisers (they see it next time they open the app).',
   });
 
+  // Statistiche live (solo per chi è abilitato): si aggiornano ogni 15 s finché sono aperte.
+  function liveStats() {
+    let timer = null;
+    openModal('Live stats', (body) => {
+      const wrap = el('div', 'stats');
+      body.append(wrap);
+      const fmtN = (n) => Number(n || 0).toLocaleString('en-GB');
+      const pct = (a, b) => (b ? Math.round((a / b) * 100) + '%' : '–');
+      const tile = (label, value, sub, cls = '') => {
+        const t = el('div', 'st-tile ' + cls);
+        t.append(el('b', null, value), el('span', null, label));
+        if (sub) t.append(el('small', null, sub));
+        return t;
+      };
+      const section = (title, ...tiles) => {
+        const g = el('div', 'st-grid');
+        g.append(...tiles);
+        return [el('div', 'section-label', title), g];
+      };
+      async function load() {
+        if (!wrap.isConnected) return clearInterval(timer); // finestra chiusa
+        if (document.visibilityState !== 'visible') return;
+        let s;
+        try { s = await api('GET', '/api/admin/live-stats'); } catch (e) { wrap.textContent = e.message; return; }
+        if (!wrap.isConnected) return;
+        wrap.textContent = '';
+        const u = s.users, a = s.activity, c = s.chat;
+        const live = el('div', 'st-live');
+        live.append(el('span', 'st-dot'), `Live · updated ${new Date(s.at).toLocaleTimeString('en-GB')}`);
+        wrap.append(live);
+        wrap.append(...section('Sign-ups',
+          tile('registered', fmtN(u.participants), u.list ? `${pct(u.participants, u.list)} of ${fmtN(u.list)} on the list` : `+ ${u.admins} organisers`, 'big'),
+          tile('today', '+' + fmtN(u.today), `${fmtN(u.lastHour)} in the last hour`),
+          tile('notifications on', fmtN(u.notifications), pct(u.notifications, u.participants + u.admins) + ' of users'),
+          tile('profiles filled in', fmtN(u.profiles), pct(u.profiles, u.participants + u.admins) + ' of users')));
+        // Iscrizioni giorno per giorno (ultimi 14 giorni)
+        const max = Math.max(1, ...s.signupsByDay.map((d) => d.n));
+        const bars = el('div', 'st-bars');
+        for (const d of s.signupsByDay) {
+          const col = el('div', 'st-bar');
+          const fill = el('i');
+          fill.style.height = Math.max(2, Math.round((d.n / max) * 100)) + '%';
+          col.title = `${d.day}: ${d.n}`;
+          col.append(el('em', null, d.n ? String(d.n) : ''), fill, el('span', null, d.day.slice(8)));
+          bars.append(col);
+        }
+        wrap.append(el('div', 'section-label', 'Sign-ups per day (last 14 days)'), bars);
+        wrap.append(...section('People active',
+          tile('online now', fmtN(a.online), `${fmtN(a.foreground)} with the app open`, 'big live'),
+          tile('last 10 min', fmtN(a.active10m)),
+          tile('last hour', fmtN(a.active1h)),
+          tile('last 24 hours', fmtN(a.active24h))));
+        wrap.append(...section('Chat',
+          tile('messages', fmtN(c.messages), `+${fmtN(c.today)} today · +${fmtN(c.lastHour)} last hour`, 'big'),
+          tile('groups', fmtN(c.groups)),
+          tile('private chats', fmtN(c.dms)),
+          tile('support requests', fmtN(c.support))));
+        const st = s.state;
+        const status = el('div', 'st-status');
+        status.append(
+          el('span', null, (st.signupsOpen ? '🟢' : '🔴') + ' Sign-ups ' + (st.signupsOpen ? 'open' : 'closed')),
+          el('span', null, (st.supportOpen ? '🟢' : '🔴') + ' Staff support ' + (st.supportOpen ? 'open' : 'closed')),
+          el('span', null, st.unlockAt ? '⏳ Chat unlocks ' + new Date(st.unlockAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' }) : '🟢 Chat unlocked'));
+        wrap.append(el('div', 'section-label', 'Status'), status);
+        const recent = el('ul', 'st-recent');
+        for (const r of s.recent) {
+          const li = el('li');
+          li.append(el('span', null, r.name), el('time', null, new Date(r.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })));
+          recent.append(li);
+        }
+        wrap.append(el('div', 'section-label', 'Latest sign-ups'), recent);
+        wrap.append(el('p', 'muted st-server', `Server: up ${s.server.uptimeMin} min · ${s.server.memoryMb} MB · ${fmtN(s.server.connections)} open connections`));
+      }
+      load();
+      timer = setInterval(load, 15_000);
+    });
+    modalOnClose = () => clearInterval(timer);
+  }
+
   $('#btn-menu').addEventListener('click', () => {
     openModal('Menu', (body) => {
       body.append(el('p', 'muted', 'Signed in as ' + state.me.name + (state.me.isAdmin ? ' ⭐ organiser' : '')));
@@ -2322,7 +2402,8 @@
         body.append(menuButton('✉️  Allow an email (organisers)', allowEmailDialog));
         body.append(menuButton('🔐  Sign-ups for new participants', signupsDialog));
         body.append(menuButton('🛟  Staff support on / off', supportDialog));
-        body.append(menuButton('📊  Stats', async () => {
+        if (state.canSeeStats) body.append(menuButton('📊  Live stats', liveStats, 'primary'));
+        else body.append(menuButton('📊  Stats', async () => {
           try {
             const s = await api('GET', '/api/admin/stats');
             toast(`${s.online} online · ${s.users} members · ${s.messages} messages`);
