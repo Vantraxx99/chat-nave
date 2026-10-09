@@ -4,7 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
-const { db } = require('./db');
+const os = require('node:os');
+const { monitorEventLoopDelay } = require('node:perf_hooks');
+const { db, DATA_DIR } = require('./db');
 const { normalizeEmail, isValidEmail, cleanName, surnameMatches } = require('./identity');
 const { hashEmail, loadHashes } = require('./allowlist');
 const push = require('./push');
@@ -1314,6 +1316,51 @@ const sq = {
   recent: db.prepare(`SELECT name, created_at FROM users WHERE is_admin = 0 ORDER BY id DESC LIMIT 8`),
 };
 let statsCache = null;
+
+// Salute del server in percentuale, con i limiti veri del container (Render Standard: 1 CPU,
+// 2 GB di memoria; il disco è quello montato sulla cartella dei dati).
+const readNum = (file) => { try { const v = fs.readFileSync(file, 'utf8').trim().split(/\s+/); return v; } catch { return null; } };
+const CPU_LIMIT = (() => {
+  const v2 = readNum('/sys/fs/cgroup/cpu.max'); // "quota periodo" oppure "max periodo"
+  if (v2 && v2[0] !== 'max') return Number(v2[0]) / Number(v2[1]);
+  const q1 = readNum('/sys/fs/cgroup/cpu/cpu.cfs_quota_us'), p1 = readNum('/sys/fs/cgroup/cpu/cpu.cfs_period_us');
+  if (q1 && p1 && Number(q1[0]) > 0) return Number(q1[0]) / Number(p1[0]);
+  // Senza limite leggibile: quello del piano (Standard = 1 CPU), non i core di tutta la macchina.
+  return Number(process.env.CPU_LIMIT) || (process.env.NODE_ENV === 'production' ? 1 : os.availableParallelism());
+})();
+const MEM_LIMIT = (() => {
+  const v = readNum('/sys/fs/cgroup/memory.max') || readNum('/sys/fs/cgroup/memory/memory.limit_in_bytes');
+  const n = v && Number(v[0]);
+  if (n && n < os.totalmem()) return n;
+  if (process.env.MEM_LIMIT_MB) return Number(process.env.MEM_LIMIT_MB) * 1048576;
+  return process.env.NODE_ENV === 'production' ? Math.min(2048 * 1048576, os.totalmem()) : os.totalmem(); // Standard = 2 GB
+})();
+const loopDelay = monitorEventLoopDelay({ resolution: 20 });
+loopDelay.enable();
+let cpuSample = { at: Date.now(), usage: process.cpuUsage() };
+function health() {
+  const now = Date.now();
+  const usage = process.cpuUsage();
+  const used = (usage.user - cpuSample.usage.user + usage.system - cpuSample.usage.system) / 1000; // ms
+  const cpu = Math.min(100, Math.round((used / Math.max(1, now - cpuSample.at) / CPU_LIMIT) * 100));
+  cpuSample = { at: now, usage };
+  const rss = process.memoryUsage().rss;
+  let disk = null;
+  try {
+    const st = fs.statfsSync(DATA_DIR);
+    const total = st.blocks * st.bsize, free = st.bavail * st.bsize;
+    let dbSize = 0;
+    for (const f of ['chat.db', 'chat.db-wal']) { try { dbSize += fs.statSync(path.join(DATA_DIR, f)).size; } catch {} }
+    disk = { pct: Math.round(((total - free) / total) * 100), usedMb: Math.round((total - free) / 1048576), totalMb: Math.round(total / 1048576), dbMb: Math.round(dbSize / 1048576 * 10) / 10 };
+  } catch {}
+  const lag = Math.round(loopDelay.mean / 1e6);
+  loopDelay.reset();
+  return {
+    cpu, cpus: Math.round(CPU_LIMIT * 10) / 10,
+    memory: { pct: Math.round((rss / MEM_LIMIT) * 100), usedMb: Math.round(rss / 1048576), totalMb: Math.round(MEM_LIMIT / 1048576) },
+    disk, lagMs: lag,
+  };
+}
 const romeDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' });
 function buildStats() {
   const now = Date.now();
@@ -1341,7 +1388,7 @@ function buildStats() {
     signupsByDay: [...days].map(([day, n]) => ({ day, n })),
     recent: sq.recent.all().map((r) => ({ name: r.name, at: r.created_at })),
     state: { signupsOpen: signupsOpen(), supportOpen: supportOpen(), unlockAt: UNLOCK_AT > now ? UNLOCK_AT : 0 },
-    server: { uptimeMin: Math.round(process.uptime() / 60), memoryMb: Math.round(process.memoryUsage().rss / 1048576), connections: waiters.size },
+    server: { uptimeMin: Math.round(process.uptime() / 60), connections: waiters.size, ...health() },
   };
 }
 route('GET', '/api/admin/live-stats', async (req) => {

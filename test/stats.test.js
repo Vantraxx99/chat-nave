@@ -40,6 +40,9 @@ test('statistiche live', async () => {
     assert.equal(s.signupsByDay[13].n, 2);
     assert.ok(s.activity.active10m >= 3);
     assert.deepEqual(s.recent.map((r) => r.name), ['P bruno', 'P anna']);
+    // salute del server: percentuali valide
+    for (const v of [s.server.cpu, s.server.memory.pct, s.server.disk.pct]) assert.ok(v >= 0 && v <= 100, String(v));
+    assert.ok(s.server.memory.totalMb > 0 && s.server.disk.totalMb > 0);
     // nei 10 secondi successivi la risposta è la stessa (nessun nuovo calcolo)
     await client('carla@x.it');
     assert.equal((await boss('GET', '/api/admin/live-stats')).body.at, s.at);

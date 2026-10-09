@@ -869,3 +869,13 @@ button.avatar { border: 0; padding: 0; cursor: pointer; font-family: inherit; }
 .st-recent li:last-child { border-bottom: 0; }
 .st-recent time { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .st-server { font-size: 12px; text-align: center; margin: 4px 0 0; }
+
+.st-health { display: flex; flex-direction: column; gap: 12px; background: var(--bg); border-radius: 16px; padding: 14px; }
+.st-meter-head { display: flex; justify-content: space-between; font-size: 14px; font-weight: 700; color: var(--text); }
+.st-meter-head b { font-variant-numeric: tabular-nums; }
+.st-meter-bar { height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 6px 0 4px; }
+.st-meter-bar i { display: block; height: 100%; border-radius: 999px; background: #22c55e; transition: width .4s; }
+.st-meter.warn .st-meter-bar i { background: #f59e0b; }
+.st-meter.bad .st-meter-bar i { background: #ef4444; }
+.st-meter.bad .st-meter-head b { color: #dc2626; }
+.st-meter small { font-size: 12px; color: var(--muted); }

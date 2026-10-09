@@ -2386,8 +2386,28 @@
           li.append(el('span', null, r.name), el('time', null, new Date(r.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })));
           recent.append(li);
         }
+        if (!s.recent.length) recent.append(el('li', 'muted', 'No sign-ups yet'));
         wrap.append(el('div', 'section-label', 'Latest sign-ups'), recent);
-        wrap.append(el('p', 'muted st-server', `Server: up ${s.server.uptimeMin} min · ${s.server.memoryMb} MB · ${fmtN(s.server.connections)} open connections`));
+        // Salute del server: barre verde / arancio / rosso
+        const sv = s.server;
+        const meter = (label, pct, detail) => {
+          const m = el('div', 'st-meter ' + (pct == null ? '' : pct >= 85 ? 'bad' : pct >= 60 ? 'warn' : 'ok'));
+          const head = el('div', 'st-meter-head');
+          head.append(el('span', null, label), el('b', null, pct == null ? '–' : pct + '%'));
+          const bar = el('div', 'st-meter-bar');
+          const fill = el('i');
+          fill.style.width = Math.min(100, pct || 0) + '%';
+          bar.append(fill);
+          m.append(head, bar, el('small', null, detail));
+          return m;
+        };
+        const health = el('div', 'st-health');
+        health.append(
+          meter('CPU', sv.cpu, `${sv.cpus} CPU · response delay ${sv.lagMs} ms`),
+          meter('Memory', sv.memory.pct, `${fmtN(sv.memory.usedMb)} MB of ${fmtN(sv.memory.totalMb)} MB`),
+          meter('Disk', sv.disk ? sv.disk.pct : null, sv.disk ? `${fmtN(sv.disk.usedMb)} MB of ${fmtN(sv.disk.totalMb)} MB · database ${sv.disk.dbMb} MB` : 'not available'));
+        wrap.append(el('div', 'section-label', 'Server'), health);
+        wrap.append(el('p', 'muted st-server', `Up ${sv.uptimeMin} min · ${fmtN(sv.connections)} open connections`));
       }
       load();
       timer = setInterval(load, 15_000);
