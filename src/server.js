@@ -735,6 +735,18 @@ const signupsOpen = () => switchOpen('signups');
 // Chat con lo staff: chiusa per i partecipanti finché gli organizzatori non la aprono (a bordo).
 const supportOpen = () => switchOpen('support');
 const SUPPORT_CLOSED_MSG = 'Staff support opens once we are on board. See you on the ship! 🚢';
+
+// Sblocco della chat: prima di questa data i partecipanti si registrano e vedono un conto alla
+// rovescia, ma non possono scrivere. Gli organizzatori non hanno limiti (per provare e preparare).
+// UNLOCK_AT: data ISO, oppure 0 per nessun blocco. Sul sito vero: 20 ottobre 2026, 16:00 ora italiana.
+const UNLOCK_AT = (() => {
+  const v = process.env.UNLOCK_AT;
+  if (v !== undefined && v !== '') return v === '0' ? 0 : Date.parse(v) || 0;
+  return process.env.NODE_ENV === 'production' ? Date.parse('2026-10-20T16:00:00+02:00') : 0;
+})();
+const isLocked = (user) => !user.is_admin && Date.now() < UNLOCK_AT;
+const LOCKED_MSG = 'The chat unlocks on 20 October at 16:00 🚢';
+function checkUnlocked(user) { if (isLocked(user)) throw new HttpError(403, LOCKED_MSG); }
 function canSignUpNow(email) {
   return signupsOpen() || ADMIN_EMAILS.has(email) || EARLY_EMAILS.has(email) || !!q.isAllowed.get(email);
 }
@@ -761,6 +773,8 @@ route('GET', '/api/me', async (req) => {
     cursor: seq,
     conversations,
     supportOpen: supportOpen(),
+    unlockAt: isLocked(user) ? UNLOCK_AT : 0, // > 0: conto alla rovescia al posto della chat
+    now: Date.now(),
   };
 });
 
@@ -851,6 +865,7 @@ route('GET', '/api/conversations/:id/messages', async (req, res, { id }, url) =>
 
 route('POST', '/api/conversations/:id/messages', async (req, res, { id }) => {
   const user = auth(req);
+  checkUnlocked(user);
   const conv = getConvOr404(id, user);
   if (conv.type === 'announce' && !user.is_admin) throw new HttpError(403, 'Only organisers can post here');
   if (conv.type === 'staff' && !user.is_admin && !supportOpen()) throw new HttpError(403, SUPPORT_CLOSED_MSG);
@@ -872,6 +887,7 @@ route('POST', '/api/conversations/:id/messages', async (req, res, { id }) => {
 // "Contact staff": apre (o crea) la chat di assistenza di chi la chiede.
 route('POST', '/api/staff', async (req) => {
   const user = auth(req);
+  checkUnlocked(user);
   if (!user.is_admin && !supportOpen()) throw new HttpError(403, SUPPORT_CLOSED_MSG);
   const key = 'staff:' + user.id;
   let conv = q.dmByKey.get(key);
@@ -944,6 +960,7 @@ route('POST', '/api/conversations/:id/read', async (req, res, { id }) => {
 
 route('POST', '/api/dm', async (req) => {
   const user = auth(req);
+  checkUnlocked(user);
   const body = await readJson(req);
   const other = q.userById.get(Number(body.userId));
   if (!other || other.banned || other.id === user.id) throw new HttpError(404, 'User not found');
@@ -968,6 +985,7 @@ const groupFull = () => new HttpError(400, `Groups can have up to ${GROUP_MAX} p
 
 route('POST', '/api/groups', async (req) => {
   const user = auth(req);
+  checkUnlocked(user);
   if (!createLimit(user.id)) throw new HttpError(429, 'Too many groups created, please try again shortly');
   const body = await readJson(req);
   const name = cleanName(body.name);
@@ -981,6 +999,7 @@ route('POST', '/api/groups', async (req) => {
 
 route('POST', '/api/conversations/:id/members', async (req, res, { id }) => {
   const user = auth(req);
+  checkUnlocked(user);
   const conv = getConvOr404(id, user);
   if (conv.type !== 'group') throw new HttpError(400, 'People can only be added to groups');
   const body = await readJson(req);
@@ -1058,6 +1077,7 @@ const reactLimit = limiter(20, 10_000);
 
 route('POST', '/api/messages/:id/react', async (req, res, { id }) => {
   const user = auth(req);
+  checkUnlocked(user);
   const msg = q.msgById.get(Number(id));
   if (!msg || msg.deleted) throw new HttpError(404, 'Message not found');
   const conv = getConvOr404(msg.conversation_id, user);
@@ -1263,6 +1283,20 @@ route('GET', '/api/admin/stats', async (req) => {
 });
 
 route('GET', '/healthz', async () => ({ ok: true }));
+
+// All'ora dello sblocco una notifica a tutti (una volta sola, anche se il server si riavvia).
+if (UNLOCK_AT) {
+  const unlockCheck = setInterval(() => {
+    if (Date.now() < UNLOCK_AT) return;
+    clearInterval(unlockCheck);
+    if ((q.getSetting.get('unlock-notified') || {}).content) return;
+    q.setSetting.run('unlock-notified', '1', null, Date.now());
+    try {
+      push.notify(null, { title: '🎉 The chat is open!', body: 'Global Reunion is unlocked: say hi to your travel mates 👋', tag: 'unlock' });
+    } catch (err) { console.error('push sblocco', err); }
+  }, 30_000);
+  unlockCheck.unref();
+}
 
 // ---------------------------------------------------------------------------
 // File statici (tutto servito dallo stesso dominio: nessuna risorsa esterna)

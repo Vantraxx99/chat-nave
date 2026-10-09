@@ -62,6 +62,30 @@
     <p class="splash-skip">Tap to skip</p>
   </div>
 
+  <!-- Iscritti in attesa dello sblocco della chat: conto alla rovescia -->
+  <section id="wait" class="screen hidden">
+    <div class="login-wrap">
+      <div class="brand">
+        <img class="brand-logo" src="/wordmark.svg" alt="WeRoad Global Reunion, Cruise Edition" width="582" height="180">
+        <p class="brand-sub">The private chat for participants</p>
+      </div>
+      <div class="login-card wait-card">
+        <p class="login-title">You're in, <span id="wait-name"></span>! 🎉</p>
+        <p class="wait-lead">The chat unlocks in</p>
+        <div class="countdown" aria-live="polite">
+          <div><b id="cd-d">0</b><span>days</span></div>
+          <div><b id="cd-h">00</b><span>hours</span></div>
+          <div><b id="cd-m">00</b><span>min</span></div>
+          <div><b id="cd-s">00</b><span>sec</span></div>
+        </div>
+        <p class="wait-date" id="wait-date"></p>
+        <p class="hint">Until then, get ready:</p>
+        <div id="wait-actions" class="wait-actions"></div>
+        <button type="button" id="wait-logout" class="wait-logout">Sign out</button>
+      </div>
+    </div>
+  </section>
+
   <!-- Accesso / registrazione -->
   <section id="login" class="screen hidden">
     <div class="login-wrap">

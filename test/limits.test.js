@@ -11,6 +11,7 @@ process.env.SECURE_COOKIE = '0';
 process.env.PARTICIPANTS_FILE = path.join(process.env.DATA_DIR, 'nessun-elenco');
 process.env.ADMIN_EMAILS = 'staff@x.it';
 process.env.NODE_ENV = 'production';
+process.env.UNLOCK_AT = '0';
 
 const { server } = require('../src/server');
 

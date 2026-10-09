@@ -324,6 +324,60 @@
   });
 
   // ---------------------------------------------------------------- Avvio
+  // ------------------------------------------------- Conto alla rovescia
+  let waitTimer = null;
+  function showWait(data) {
+    const skew = (data.now || Date.now()) - Date.now(); // l'ora giusta è quella del server
+    $('#wait-name').textContent = state.me.name.split(' ')[0];
+    const when = new Date(data.unlockAt);
+    const fmt = (o) => when.toLocaleString('en-GB', { timeZone: 'Europe/Rome', ...o });
+    $('#wait-date').textContent = `🚢 ${fmt({ weekday: 'long', day: 'numeric', month: 'long' })} · ${fmt({ hour: '2-digit', minute: '2-digit' })} (Italy time)`;
+    const pad = (n) => String(n).padStart(2, '0');
+    const tick = () => {
+      const left = data.unlockAt - (Date.now() + skew);
+      if (left <= 0) { clearInterval(waitTimer); waitTimer = null; return start(); } // si apre la chat
+      const sec = Math.floor(left / 1000);
+      $('#cd-d').textContent = Math.floor(sec / 86400);
+      $('#cd-h').textContent = pad(Math.floor(sec / 3600) % 24);
+      $('#cd-m').textContent = pad(Math.floor(sec / 60) % 60);
+      $('#cd-s').textContent = pad(sec % 60);
+    };
+    clearInterval(waitTimer);
+    tick();
+    waitTimer = setInterval(tick, 1000);
+    // Cosa si può già fare: app sulla Home, notifiche (arriva un avviso all'apertura), profilo, info.
+    const box = $('#wait-actions');
+    box.textContent = '';
+    const notif = menuButton('', async () => {
+      const st = await pushStatus().catch(() => 'unsupported');
+      if (st === 'ios-home') return installGuide();
+      if (st === 'off') { await enablePush(); paintNotif(); }
+      else if (st === 'on') toast('🔔 Notifications are on: we will tell you when the chat opens');
+      else toast('Notifications are not available on this browser');
+    });
+    const paintNotif = async () => {
+      const st = await pushStatus().catch(() => 'unsupported');
+      notif.textContent = st === 'on' ? '✅  Notifications are on' : '🔔  Turn on notifications';
+      notif.classList.toggle('primary', st !== 'on');
+    };
+    paintNotif();
+    box.append(
+      menuButton('📲  Add the chat to your Home Screen', installGuide, isStandalone ? '' : 'primary'),
+      notif,
+      menuButton('👤  Complete your profile', () => showProfile(state.me.id)),
+      menuButton('ℹ️  Useful info', usefulInfo),
+    );
+    if (isStandalone) box.firstChild.textContent = '✅  The chat is on your Home Screen';
+    show('wait');
+    syncPush();
+  }
+  $('#wait-logout').addEventListener('click', async () => {
+    if (!await askConfirm('Sign out? You can sign back in with your email and password.', 'Sign out')) return;
+    await disablePush();
+    try { await api('POST', '/api/logout'); } catch {}
+    location.reload();
+  });
+
   async function start() {
     let data;
     try { data = await api('GET', '/api/me'); }
@@ -335,6 +389,8 @@
     }
     state.me = data.user;
     state.supportOpen = data.supportOpen !== false;
+    // Chat non ancora sbloccata: iscritti sì, ma vedono il conto alla rovescia.
+    if (data.unlockAt) return showWait(data);
     state.cursor = data.cursor;
     state.convs.clear();
     for (const c of data.conversations) { c.lastSeenId = c.lastMessage ? c.lastMessage.id : 0; state.convs.set(c.id, c); if (c.receipt) state.receipts.set(c.id, c.receipt); }

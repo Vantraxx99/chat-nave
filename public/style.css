@@ -109,7 +109,7 @@ input, textarea { font: inherit; color: inherit; }
 .brand { text-align: center; color: #fff; margin-bottom: 18px; }
 .brand-logo { width: min(100%, 340px); height: auto; display: block; margin: 0 auto; }
 .brand-sub { margin: 10px 0 0; font-size: 15px; font-weight: 600; }
-#login {
+#login, #wait {
   display: flex; align-items: center; justify-content: center; overflow-y: auto;
   padding: max(16px, env(safe-area-inset-top)) 16px 110px;
   background: var(--brand) url(/waves.jpg) repeat-x center bottom / auto 110px;
@@ -832,3 +832,15 @@ button.avatar { border: 0; padding: 0; cursor: pointer; font-family: inherit; }
   font-size: 34px; font-weight: 900; letter-spacing: 8px; font-variant-numeric: tabular-nums; user-select: all; -webkit-user-select: all;
 }
 .chip.count { background: var(--bg); color: var(--muted); }
+
+/* ---------- Conto alla rovescia prima dello sblocco ---------- */
+.wait-card { text-align: center; display: flex; flex-direction: column; gap: 10px; }
+.wait-lead { margin: 4px 0 0; font-weight: 700; color: var(--muted); font-size: 14px; text-transform: uppercase; letter-spacing: 1.5px; }
+.countdown { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.countdown div { background: #07253D; color: var(--lime); border-radius: 16px; padding: 10px 0 8px; display: flex; flex-direction: column; align-items: center; }
+.countdown b { font-family: var(--display); font-weight: 400; font-size: 34px; line-height: 1; font-variant-numeric: tabular-nums; }
+.countdown span { color: #c9d6ea; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+.wait-date { margin: 0 0 6px; font-weight: 700; color: var(--text); }
+.wait-actions { display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.wait-actions .menu-btn { margin: 0; }
+.wait-logout { border: 0; background: none; color: var(--muted); font-size: 13px; font-weight: 600; padding: 6px; text-decoration: underline; cursor: pointer; }
