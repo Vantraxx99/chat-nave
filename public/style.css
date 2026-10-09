@@ -544,6 +544,7 @@ input, textarea { font: inherit; color: inherit; }
   background: var(--panel); border-radius: 12px; line-height: 1.35;
 }
 .info-row.single { display: block; }
+.info-row.single .info-label { font-weight: 500; line-height: 1.45; }
 .info-label { font-weight: 700; }
 .info-value { color: var(--muted); text-align: right; min-width: 0; overflow-wrap: anywhere; }
 .info-updated { font-size: 12px; margin-top: 2px !important; }

@@ -892,13 +892,24 @@ route('POST', '/api/staff', async (req) => {
 // salvate prima, in testo semplice, vengono convertite dall'app.
 const DEFAULT_INFO = JSON.stringify({
   title: 'Welcome aboard! 🚢',
-  intro: 'Everything you need on board, in one place. Organisers: tap Edit to change this page.',
+  intro: 'This platform was created so you can stay in touch with your travel companions, even in the middle of the sea 🌊 Chat with everyone: in groups, or one to one with anyone on board.',
   sections: [
-    { icon: '📍', title: 'Reception', items: [{ t: 'Where', v: 'Deck 5' }, { t: 'Open', v: '24 hours' }] },
-    { icon: '🕒', title: 'Daily schedule', items: [{ t: 'Breakfast', v: '08:00–10:30' }, { t: 'Party', v: '21:00, top deck' }] },
-    { icon: '🛟', title: 'Need help?', items: [{ t: 'Write to us', v: 'Menu → Contact staff' }] },
+    { icon: '🔔', title: 'Turn on notifications', items: [{ t: 'Menu ⋮ → Notifications → Turn on, so you never miss a message. On iPhone, first add the chat to your Home Screen and open it from there.', v: '' }] },
+    { icon: '💬', title: 'Message anyone', items: [{ t: 'Tap “New chat” and pick a name to write to someone one to one.', v: '' }] },
+    { icon: '👥', title: 'Create your groups', items: [{ t: 'With your friends or your roommates: “New chat” → “Create a group” (up to 20 people).', v: '' }] },
+    { icon: '🛟', title: 'Staff support', items: [{ t: 'The chat to ask the Reunion team for any info. It opens on departure day.', v: '' }] },
+    { icon: '📍', title: 'WeRoad desk', items: [{ t: 'For any information, you can find the Reunion team at the WeRoad desk.', v: '' }] },
+    { icon: '📶', title: 'Stay on the ship’s Wi‑Fi', items: [{ t: 'To use the chat on board you need to stay connected to the ship’s Wi‑Fi.', v: '' }] },
+    { icon: '🔑', title: 'Save your password', items: [{ t: 'Save your sign-in password on your phone: you will need it to sign in again.', v: '' }] },
   ],
 });
+// Pagina nuova scritta dal team (ottobre 2026): sostituisce una volta quella salvata,
+// poi gli organizzatori possono modificarla come sempre.
+const INFO_VERSION = '2';
+if ((q.getSetting.get('info-version') || {}).content !== INFO_VERSION) {
+  q.setInfo.run(DEFAULT_INFO, null, Date.now());
+  q.setSetting.run('info-version', INFO_VERSION, null, Date.now());
+}
 
 route('GET', '/api/info', async (req) => {
   auth(req);
