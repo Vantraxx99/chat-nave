@@ -746,7 +746,13 @@ const switchOpen = (key) => {
   const row = q.getSetting.get(key);
   return row ? row.content === 'open' : process.env.NODE_ENV !== 'production';
 };
-const signupsOpen = () => switchOpen('signups');
+// Iscrizioni: aperte di default (il conto alla rovescia tiene chiusa la chat fino allo sblocco).
+// Una volta sola le riapriamo anche se erano state chiuse dal menu; poi l'interruttore funziona come sempre.
+const signupsOpen = () => { const row = q.getSetting.get('signups'); return row ? row.content === 'open' : true; };
+if (!q.getSetting.get('signups-open-v1')) {
+  q.setSetting.run('signups', 'open', null, Date.now());
+  q.setSetting.run('signups-open-v1', '1', null, Date.now());
+}
 // Chat con lo staff: chiusa per i partecipanti finché gli organizzatori non la aprono (a bordo).
 const supportOpen = () => switchOpen('support');
 const SUPPORT_CLOSED_MSG = 'Staff support opens once we are on board. See you on the ship! 🚢';

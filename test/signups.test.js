@@ -22,12 +22,16 @@ test('iscrizioni chiuse con eccezioni', async () => {
     .then(async (r) => ({ status: r.status, body: await r.json().catch(() => null), cookie: (r.headers.get('set-cookie') || '').split(';')[0] }));
   const reg = (email) => post('/api/register', { firstName: 'A', lastName: 'B', email, password: 'secret1' });
   try {
+    // aperte di default: un organizzatore le chiude dal menu
+    const boss = await reg('staff@x.it');
+    assert.equal((await post('/api/admin/signups', undefined, boss.cookie)).body.open, true);
+    assert.equal((await post('/api/admin/signups', { open: false }, boss.cookie)).body.open, false);
     assert.equal((await post('/api/login/check', { email: 'random@x.it' })).body.step, 'closed');
     assert.equal((await reg('random@x.it')).status, 403);
     // accesso anticipato (dal file, maiuscole comprese) e organizzatori entrano
     assert.equal((await post('/api/login/check', { email: 'Orlando.Palomba@gmail.com' })).body.step, 'new');
     assert.equal((await reg('orlando.palomba@gmail.com')).status, 200);
-    const staff = await reg('staff@x.it');
+    const staff = (await post('/api/register', { email: 'staff@x.it', password: 'secret1' }));
     assert.equal(staff.status, 200);
     // chi ha già l'account entra anche a iscrizioni chiuse
     assert.equal((await post('/api/login/check', { email: 'orlando.palomba@gmail.com' })).body.step, 'password');
